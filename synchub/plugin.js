@@ -60,6 +60,13 @@ class Plugin extends CollectionPlugin {
             onSelected: () => this.syncAll()
         });
 
+        // Command palette: Reset Stuck Syncs
+        this.resetCommand = this.ui.addCommandPaletteCommand({
+            label: 'Sync Hub: Reset Stuck Syncs',
+            icon: 'refresh-alert',
+            onSelected: () => this.resetStuckSyncs()
+        });
+
         // Start the scheduler
         this.startScheduler();
 
@@ -73,6 +80,9 @@ class Plugin extends CollectionPlugin {
         }
         if (this.syncAllCommand) {
             this.syncAllCommand.remove();
+        }
+        if (this.resetCommand) {
+            this.resetCommand.remove();
         }
         if (this.statusBarItem) {
             this.statusBarItem.remove();
@@ -304,11 +314,18 @@ class Plugin extends CollectionPlugin {
         this.currentlySyncing = pluginId;
         this.updateStatusBar();
 
-        try {
-            const startTime = Date.now();
+        const startTime = Date.now();
+        let result = null;
+        let errorMsg = null;
 
-            // Run the sync function with context
-            const result = await syncFn({
+        try {
+            // Run sync with timeout (5 minutes max)
+            const SYNC_TIMEOUT = 5 * 60 * 1000;
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Sync timeout (5 min)')), SYNC_TIMEOUT);
+            });
+
+            const syncPromise = syncFn({
                 data: this.data,
                 ui: this.ui,
                 log: (msg) => this.appendLog(record.guid, msg, logLevel),
@@ -319,62 +336,59 @@ class Plugin extends CollectionPlugin {
                 },
             });
 
-            const duration = Date.now() - startTime;
-
-            // Update status to idle
-            record.prop('status')?.setChoice('idle');
-            this.setLastRun(record);
-            record.prop('last_error')?.set(null);
-            this.currentlySyncing = null;
-            this.updateStatusBar();
-
-            // Log each change with verb + record reference
-            const changes = result?.changes || [];
-            for (const change of changes) {
-                await this.appendChangeLog(record.guid, change.verb, change.title, change.guid);
-            }
-
-            // Log summary if no individual changes or in debug mode
-            if (changes.length === 0 || logLevel === 'debug') {
-                const summary = result?.summary || 'Sync complete';
-                await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
-            }
-
-            // Toast notification
-            if (this.shouldToast(toastLevel, result)) {
-                this.ui.addToaster({
-                    title: pluginId,
-                    message: result?.summary || 'Sync complete',
-                    dismissible: true,
-                    autoDestroyTime: 3000,
-                });
-            }
-
-            // Journal entries based on level
-            if (journalLevel !== 'none' && changes.length > 0) {
-                await this.writeChangesToJournal(changes, journalLevel);
-            }
+            result = await Promise.race([syncPromise, timeoutPromise]);
 
         } catch (error) {
-            const errorMsg = error.message || String(error);
-
-            record.prop('status')?.setChoice('error');
-            this.setLastRun(record);
-            record.prop('last_error')?.set(errorMsg);
+            errorMsg = error.message || String(error);
+        } finally {
+            // ALWAYS reset status - this is the key fix
+            const duration = Date.now() - startTime;
             this.currentlySyncing = null;
-            this.updateStatusBar();
 
-            await this.appendLog(record.guid, `ERROR: ${errorMsg}`, 'error');
+            if (errorMsg) {
+                record.prop('status')?.setChoice('error');
+                record.prop('last_error')?.set(errorMsg);
+                await this.appendLog(record.guid, `ERROR: ${errorMsg}`, 'error');
 
-            // Always toast on error if not 'none'
-            if (toastLevel !== 'none') {
-                this.ui.addToaster({
-                    title: `${pluginId} error`,
-                    message: errorMsg,
-                    dismissible: true,
-                    autoDestroyTime: 5000,
-                });
+                if (toastLevel !== 'none') {
+                    this.ui.addToaster({
+                        title: `${pluginId} error`,
+                        message: errorMsg,
+                        dismissible: true,
+                        autoDestroyTime: 5000,
+                    });
+                }
+            } else {
+                record.prop('status')?.setChoice('idle');
+                record.prop('last_error')?.set(null);
+
+                // Log changes
+                const changes = result?.changes || [];
+                for (const change of changes) {
+                    await this.appendChangeLog(record.guid, change.verb, change.title, change.guid);
+                }
+
+                if (changes.length === 0 || logLevel === 'debug') {
+                    const summary = result?.summary || 'Sync complete';
+                    await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
+                }
+
+                if (this.shouldToast(toastLevel, result)) {
+                    this.ui.addToaster({
+                        title: pluginId,
+                        message: result?.summary || 'Sync complete',
+                        dismissible: true,
+                        autoDestroyTime: 3000,
+                    });
+                }
+
+                if (journalLevel !== 'none' && (result?.changes?.length || 0) > 0) {
+                    await this.writeChangesToJournal(result.changes, journalLevel);
+                }
             }
+
+            this.setLastRun(record);
+            this.updateStatusBar();
         }
     }
 
@@ -1014,6 +1028,43 @@ class Plugin extends CollectionPlugin {
             this.ui.addToaster({
                 title: 'Sync Hub',
                 message: `Sync all failed: ${e.message}`,
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
+        }
+    }
+
+    /**
+     * Reset all stuck syncs to idle
+     */
+    async resetStuckSyncs() {
+        try {
+            const records = await this.myCollection?.getAllRecords() || [];
+            let resetCount = 0;
+
+            for (const record of records) {
+                const status = record.prop('status')?.choice();
+                if (status === 'syncing') {
+                    record.prop('status')?.setChoice('idle');
+                    record.prop('last_error')?.set('Reset by user');
+                    resetCount++;
+                }
+            }
+
+            this.currentlySyncing = null;
+            this.updateStatusBar();
+
+            this.ui.addToaster({
+                title: 'Sync Hub',
+                message: resetCount > 0 ? `Reset ${resetCount} stuck sync(s)` : 'No stuck syncs found',
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+
+        } catch (e) {
+            this.ui.addToaster({
+                title: 'Sync Hub',
+                message: `Reset failed: ${e.message}`,
                 dismissible: true,
                 autoDestroyTime: 3000,
             });
