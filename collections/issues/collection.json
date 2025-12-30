@@ -35,7 +35,7 @@
             "type": "text"
         },
         {
-            "icon": "ti-plug",
+            "icon": "ti-anchor",
             "id": "source",
             "label": "Source",
             "many": false,
@@ -210,15 +210,6 @@
             "read_only": false,
             "active": true,
             "type": "banner"
-        },
-        {
-            "icon": "ti-align-left",
-            "id": "icon",
-            "label": "Icon",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "text"
         }
     ],
     "sidebar_record_sort_dir": "desc",

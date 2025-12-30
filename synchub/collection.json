@@ -16,7 +16,7 @@
     "show_cmdpal_items": true,
     "fields": [
         {
-            "icon": "ti-plug",
+            "icon": "ti-id",
             "id": "plugin_id",
             "label": "Plugin ID",
             "many": false,
@@ -25,7 +25,7 @@
             "type": "text"
         },
         {
-            "icon": "ti-toggle-right",
+            "icon": "ti-check",
             "id": "enabled",
             "label": "Enabled",
             "many": false,
@@ -199,7 +199,7 @@
             ]
         },
         {
-            "icon": "ti-clock-check",
+            "icon": "ti-run",
             "id": "last_run",
             "label": "Last Run",
             "many": false,

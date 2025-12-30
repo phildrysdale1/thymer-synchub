@@ -8,17 +8,42 @@
 class Plugin extends AppPlugin {
 
     async onLoad() {
-        this.log('GitHub Sync loading...');
+        // Command palette: Full Sync (ignores last_run)
+        this.fullSyncCommand = this.ui.addCommandPaletteCommand({
+            label: 'GitHub Full Sync',
+            icon: 'brand-github',
+            onSelected: () => this.triggerSync(true)
+        });
+
+        // Command palette: Incremental Sync (uses last_run)
+        this.incrementalSyncCommand = this.ui.addCommandPaletteCommand({
+            label: 'GitHub Incremental Sync',
+            icon: 'brand-github',
+            onSelected: () => this.triggerSync(false)
+        });
 
         // Wait for Sync Hub to be available
         this.waitForSyncHub();
     }
 
     onUnload() {
+        if (this.fullSyncCommand) {
+            this.fullSyncCommand.remove();
+        }
+        if (this.incrementalSyncCommand) {
+            this.incrementalSyncCommand.remove();
+        }
         if (window.syncHub) {
             window.syncHub.unregister('github-sync');
         }
-        this.log('GitHub Sync unloaded.');
+    }
+
+    async triggerSync(forceFullSync = false) {
+        this.forceFullSync = forceFullSync;
+        if (window.syncHub) {
+            await window.syncHub.requestSync('github-sync');
+        }
+        this.forceFullSync = false;
     }
 
     waitForSyncHub() {
@@ -26,7 +51,6 @@ class Plugin extends AppPlugin {
             this.registerWithSyncHub();
         } else {
             setTimeout(() => this.waitForSyncHub(), 1000);
-            this.log('Waiting for Sync Hub...');
         }
     }
 
@@ -38,8 +62,6 @@ class Plugin extends AppPlugin {
             defaultInterval: '5m',
             sync: async (ctx) => this.sync(ctx),
         });
-
-        this.log('Registered with Sync Hub');
     }
 
     // =========================================================================
@@ -73,6 +95,7 @@ class Plugin extends AppPlugin {
 
         const token = myRecord.text('token');
         const configJson = myRecord.text('config');
+        const lastRun = myRecord.prop('last_run')?.date();
 
         if (!token) {
             log('No GitHub token configured');
@@ -89,6 +112,17 @@ class Plugin extends AppPlugin {
 
         const repos = config.repos || [];
         const query = config.query || '';
+
+        // Format last_run for GitHub API (ISO 8601)
+        // Skip if forceFullSync is set (via command palette)
+        const since = (lastRun && !this.forceFullSync) ? lastRun.toISOString() : null;
+        if (this.forceFullSync) {
+            debug('Full sync (forced)');
+        } else if (since) {
+            debug(`Incremental sync since: ${since}`);
+        } else {
+            debug('Full sync (no last_run)');
+        }
 
         if (repos.length === 0 && !query) {
             log('No repos or query configured');
@@ -109,7 +143,7 @@ class Plugin extends AppPlugin {
         // Sync from search query
         if (query) {
             debug(`Searching: ${query}`);
-            const result = await this.syncFromSearch(token, query, issuesCollection, data, { log, debug });
+            const result = await this.syncFromSearch(token, query, issuesCollection, data, { log, debug, since });
             totalCreated += result.created;
             totalUpdated += result.updated;
         }
@@ -117,7 +151,7 @@ class Plugin extends AppPlugin {
         // Sync from specific repos
         for (const repo of repos) {
             debug(`Fetching: ${repo}`);
-            const result = await this.syncFromRepo(token, repo, issuesCollection, data, { log, debug });
+            const result = await this.syncFromRepo(token, repo, issuesCollection, data, { log, debug, since });
             totalCreated += result.created;
             totalUpdated += result.updated;
         }
@@ -138,8 +172,14 @@ class Plugin extends AppPlugin {
     // GitHub API
     // =========================================================================
 
-    async syncFromSearch(token, query, issuesCollection, data, { log, debug }) {
-        const url = `https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=100`;
+    async syncFromSearch(token, query, issuesCollection, data, { log, debug, since }) {
+        // GitHub search API uses updated:>=YYYY-MM-DD for incremental sync
+        let effectiveQuery = query;
+        if (since) {
+            const sinceDate = since.split('T')[0]; // YYYY-MM-DD
+            effectiveQuery = `${query} updated:>=${sinceDate}`;
+        }
+        const url = `https://api.github.com/search/issues?q=${encodeURIComponent(effectiveQuery)}&per_page=100`;
 
         try {
             const response = await fetch(url, {
@@ -161,8 +201,12 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async syncFromRepo(token, repo, issuesCollection, data, { log, debug }) {
-        const url = `https://api.github.com/repos/${repo}/issues?state=all&per_page=100`;
+    async syncFromRepo(token, repo, issuesCollection, data, { log, debug, since }) {
+        // GitHub API supports since parameter for incremental sync
+        let url = `https://api.github.com/repos/${repo}/issues?state=all&per_page=100`;
+        if (since) {
+            url += `&since=${encodeURIComponent(since)}`;
+        }
 
         try {
             const response = await fetch(url, {
@@ -247,7 +291,6 @@ class Plugin extends AppPlugin {
         const record = records.find(r => r.guid === recordGuid);
 
         if (!record) {
-            console.warn(`[GitHub] Could not get record: ${recordGuid}`);
             return null;
         }
 
@@ -302,12 +345,4 @@ class Plugin extends AppPlugin {
         }
     }
 
-    log(message, level = 'info') {
-        const prefix = '[GitHub]';
-        if (level === 'error') {
-            console.error(prefix, message);
-        } else {
-            console.log(prefix, message);
-        }
-    }
 }

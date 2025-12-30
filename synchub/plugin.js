@@ -13,8 +13,6 @@
 class Plugin extends CollectionPlugin {
 
     async onLoad() {
-        this.log('Sync Hub v0.1 loading...');
-
         // Find our collection
         const collections = await this.data.getAllCollections();
         this.myCollection = collections.find(c => c.getName() === this.getName());
@@ -23,8 +21,6 @@ class Plugin extends CollectionPlugin {
             this.log('Could not find own collection!', 'error');
             return;
         }
-
-        this.log(`Found collection: ${this.myCollection.getName()} (${this.myCollection.getGuid()})`);
 
         // Expose API for other collections to register
         window.syncHub = {
@@ -40,16 +36,58 @@ class Plugin extends CollectionPlugin {
         // Track registered sync functions
         this.syncFunctions = new Map();
 
+        // Command palette: Paste Markdown
+        this.pasteCommand = this.ui.addCommandPaletteCommand({
+            label: 'Paste Markdown',
+            icon: 'clipboard-text',
+            onSelected: () => this.pasteMarkdownFromClipboard()
+        });
+
         // Start the scheduler
         this.startScheduler();
-
-        this.log('Sync Hub ready. window.syncHub API exposed.');
     }
 
     onUnload() {
+        if (this.pasteCommand) {
+            this.pasteCommand.remove();
+        }
         this.stopScheduler();
         delete window.syncHub;
-        this.log('Sync Hub unloaded.');
+    }
+
+    async pasteMarkdownFromClipboard() {
+        try {
+            const markdown = await navigator.clipboard.readText();
+            if (!markdown || !markdown.trim()) {
+                this.ui.addToaster({
+                    title: 'Paste Markdown',
+                    message: 'Clipboard is empty',
+                    dismissible: true,
+                    autoDestroyTime: 2000,
+                });
+                return;
+            }
+
+            const record = this.ui.getActivePanel()?.getActiveRecord();
+            if (!record) {
+                this.ui.addToaster({
+                    title: 'Paste Markdown',
+                    message: 'No active record. Open a note first.',
+                    dismissible: true,
+                    autoDestroyTime: 3000,
+                });
+                return;
+            }
+
+            await this.insertMarkdown(markdown, record, null);
+        } catch (error) {
+            this.ui.addToaster({
+                title: 'Paste Markdown',
+                message: `Failed: ${error.message}`,
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
+        }
     }
 
     // =========================================================================
@@ -86,9 +124,6 @@ class Plugin extends CollectionPlugin {
                 icon,
                 defaultInterval,
             });
-            this.log(`Registered new plugin: ${id}`);
-        } else {
-            this.log(`Plugin already registered: ${id}`);
         }
 
         return record;
@@ -96,7 +131,6 @@ class Plugin extends CollectionPlugin {
 
     async unregisterPlugin(pluginId) {
         this.syncFunctions.delete(pluginId);
-        this.log(`Unregistered plugin: ${pluginId}`);
     }
 
     // =========================================================================
@@ -157,7 +191,6 @@ class Plugin extends CollectionPlugin {
     startScheduler() {
         // Check every 30 seconds which plugins need to run
         this.schedulerInterval = setInterval(() => this.tick(), 30000);
-        this.log('Scheduler started (30s tick)');
     }
 
     stopScheduler() {
@@ -165,7 +198,6 @@ class Plugin extends CollectionPlugin {
             clearInterval(this.schedulerInterval);
             this.schedulerInterval = null;
         }
-        this.log('Scheduler stopped');
     }
 
     async tick() {
@@ -240,10 +272,6 @@ class Plugin extends CollectionPlugin {
         // Update status to syncing
         record.prop('status')?.setChoice('syncing');
 
-        if (logLevel === 'debug') {
-            this.log(`Starting sync: ${pluginId}`);
-        }
-
         try {
             const startTime = Date.now();
 
@@ -251,10 +279,10 @@ class Plugin extends CollectionPlugin {
             const result = await syncFn({
                 data: this.data,
                 ui: this.ui,
-                log: (msg) => this.appendLog(record.guid, msg),
+                log: (msg) => this.appendLog(record.guid, msg, logLevel),
                 debug: (msg) => {
                     if (logLevel === 'debug') {
-                        this.appendLog(record.guid, `[debug] ${msg}`);
+                        this.appendLog(record.guid, `[debug] ${msg}`, logLevel);
                     }
                 },
             });
@@ -268,7 +296,7 @@ class Plugin extends CollectionPlugin {
 
             // Log result
             const summary = result?.summary || 'Sync complete';
-            await this.appendLog(record.guid, `${summary} (${duration}ms)`);
+            await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
 
             // Toast notification
             if (this.shouldToast(toastLevel, result)) {
@@ -283,7 +311,6 @@ class Plugin extends CollectionPlugin {
             // Journal entry
             if (writeJournal && result?.journalEntry) {
                 // TODO: Write to daily journal
-                this.log(`Journal: ${result.journalEntry}`);
             }
 
         } catch (error) {
@@ -293,7 +320,7 @@ class Plugin extends CollectionPlugin {
             record.prop('last_run')?.set(new Date());
             record.prop('last_error')?.set(errorMsg);
 
-            await this.appendLog(record.guid, `ERROR: ${errorMsg}`);
+            await this.appendLog(record.guid, `ERROR: ${errorMsg}`, 'error');
 
             // Always toast on error if not 'none'
             if (toastLevel !== 'none') {
@@ -304,8 +331,6 @@ class Plugin extends CollectionPlugin {
                     autoDestroyTime: 5000,
                 });
             }
-
-            this.log(`Sync failed for ${pluginId}: ${errorMsg}`, 'error');
         }
     }
 
@@ -321,7 +346,7 @@ class Plugin extends CollectionPlugin {
     // Activity Logging
     // =========================================================================
 
-    async appendLog(recordGuid, message) {
+    async appendLog(recordGuid, message, logLevel = 'info') {
         const timestamp = new Date().toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
@@ -330,20 +355,12 @@ class Plugin extends CollectionPlugin {
 
         const logLine = `${timestamp} ${message}`;
 
-        // Get the record
-        const record = this.data.getRecord(recordGuid);
-        if (!record) {
-            this.log(`Could not find record for logging: ${recordGuid}`, 'warn');
-            return;
+        // Only log to console in debug mode or for errors
+        if (logLevel === 'debug' || logLevel === 'error') {
+            console.log(`[SyncHub] [${recordGuid.slice(0,8)}] ${logLine}`);
         }
 
-        // Get current body via line items and append
-        // For now, just log to console - body manipulation via line items is more complex
-        this.log(`[${recordGuid}] ${logLine}`);
-
         // TODO: Implement proper body appending via line items API
-        // const lineItems = await record.getLineItems();
-        // await record.createLineItem(null, lastItem, 'text');
     }
 
     log(message, level = 'info') {

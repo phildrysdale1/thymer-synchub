@@ -151,6 +151,65 @@ If you need a new collection type:
 3. Create a record in Sync Hub with your plugin_id
 4. Trigger sync: `window.syncHub.requestSync('my-source-sync')`
 
+## Debugging
+
+### Log Level Setting
+
+Each plugin record in Sync Hub has a **Log Level** field with two options:
+
+| Level | Behavior |
+|-------|----------|
+| **Info** | Silent operation - no console output (default) |
+| **Debug** | Verbose logging - all `debug()` and `log()` calls print to console |
+
+To enable debug logging:
+1. Open Sync Hub collection
+2. Find your plugin record
+3. Set **Log Level** to "Debug"
+4. Trigger a sync
+
+### Using log() and debug()
+
+Your sync function receives `log` and `debug` callbacks:
+
+```javascript
+async sync({ data, ui, log, debug }) {
+    debug('Starting sync...');           // Only shows when Log Level = Debug
+    debug(`Fetching from ${url}`);       // Great for tracing API calls
+
+    log('Critical error occurred');       // Also only shows in Debug mode
+
+    // ... sync logic ...
+
+    debug(`Processed ${items.length} items`);
+}
+```
+
+**Best practices:**
+- Use `debug()` liberally for tracing execution flow
+- Use `debug()` for variable values: `debug(\`Found \${records.length} records\`)`
+- Errors are always logged to console regardless of log level
+
+### Command Palette Commands
+
+Plugins can register commands for manual triggering:
+
+```javascript
+async onLoad() {
+    this.fullSyncCommand = this.ui.addCommandPaletteCommand({
+        label: 'My Source Full Sync',
+        icon: 'cloud-download',
+        onSelected: () => this.triggerSync(true)
+    });
+}
+
+onUnload() {
+    if (this.fullSyncCommand) {
+        this.fullSyncCommand.remove();
+    }
+}
+```
+
 ## Common Gotchas
 
 See [docs/sdk-notes.md](docs/sdk-notes.md) for SDK quirks and workarounds.
