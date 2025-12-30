@@ -22,13 +22,22 @@ class Plugin extends AppPlugin {
             onSelected: () => this.triggerSync(false)
         });
 
-        // Wait for Sync Hub
-        this.waitForSyncHub();
+        // Listen for Sync Hub ready event (handles reloads)
+        this.syncHubReadyHandler = () => this.registerWithSyncHub();
+        window.addEventListener('synchub-ready', this.syncHubReadyHandler);
+
+        // Also check if Sync Hub is already ready
+        if (window.syncHub) {
+            this.registerWithSyncHub();
+        }
     }
 
     onUnload() {
         if (this.fullSyncCommand) this.fullSyncCommand.remove();
         if (this.incrementalSyncCommand) this.incrementalSyncCommand.remove();
+        if (this.syncHubReadyHandler) {
+            window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
+        }
         if (window.syncHub) window.syncHub.unregister('readwise-sync');
     }
 
@@ -40,15 +49,8 @@ class Plugin extends AppPlugin {
         this.forceFullSync = false;
     }
 
-    waitForSyncHub() {
-        if (window.syncHub) {
-            this.registerWithSyncHub();
-        } else {
-            setTimeout(() => this.waitForSyncHub(), 1000);
-        }
-    }
-
     async registerWithSyncHub() {
+        console.log('[Readwise] Registering with Sync Hub...');
         await window.syncHub.register({
             id: 'readwise-sync',
             name: 'Readwise',
@@ -56,6 +58,7 @@ class Plugin extends AppPlugin {
             defaultInterval: '1h',
             sync: async (ctx) => this.sync(ctx),
         });
+        console.log('[Readwise] Registered successfully');
     }
 
     // =========================================================================

@@ -47,7 +47,14 @@ class Plugin extends AppPlugin {
         this.messageHandler = (event) => this.handleAuthMessage(event);
         window.addEventListener('message', this.messageHandler);
 
-        this.waitForSyncHub();
+        // Listen for Sync Hub ready event (handles reloads)
+        this.syncHubReadyHandler = () => this.registerWithSyncHub();
+        window.addEventListener('synchub-ready', this.syncHubReadyHandler);
+
+        // Also check if Sync Hub is already ready
+        if (window.syncHub) {
+            this.registerWithSyncHub();
+        }
     }
 
     onUnload() {
@@ -62,6 +69,9 @@ class Plugin extends AppPlugin {
         }
         if (this.messageHandler) {
             window.removeEventListener('message', this.messageHandler);
+        }
+        if (this.syncHubReadyHandler) {
+            window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
         }
         if (window.syncHub) {
             window.syncHub.unregister('google-calendar-sync');
@@ -164,15 +174,8 @@ class Plugin extends AppPlugin {
         this.forceFullSync = false;
     }
 
-    waitForSyncHub() {
-        if (window.syncHub) {
-            this.registerWithSyncHub();
-        } else {
-            setTimeout(() => this.waitForSyncHub(), 1000);
-        }
-    }
-
     async registerWithSyncHub() {
+        console.log('[Google Calendar] Registering with Sync Hub...');
         await window.syncHub.register({
             id: 'google-calendar-sync',
             name: 'Google Calendar',
@@ -180,6 +183,7 @@ class Plugin extends AppPlugin {
             defaultInterval: '15m',
             sync: async (ctx) => this.sync(ctx),
         });
+        console.log('[Google Calendar] Registered successfully');
     }
 
     // =========================================================================

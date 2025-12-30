@@ -22,8 +22,14 @@ class Plugin extends AppPlugin {
             onSelected: () => this.triggerSync(false)
         });
 
-        // Wait for Sync Hub to be available
-        this.waitForSyncHub();
+        // Listen for Sync Hub ready event (handles reloads)
+        this.syncHubReadyHandler = () => this.registerWithSyncHub();
+        window.addEventListener('synchub-ready', this.syncHubReadyHandler);
+
+        // Also check if Sync Hub is already ready
+        if (window.syncHub) {
+            this.registerWithSyncHub();
+        }
     }
 
     onUnload() {
@@ -32,6 +38,9 @@ class Plugin extends AppPlugin {
         }
         if (this.incrementalSyncCommand) {
             this.incrementalSyncCommand.remove();
+        }
+        if (this.syncHubReadyHandler) {
+            window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
         }
         if (window.syncHub) {
             window.syncHub.unregister('github-sync');
@@ -46,15 +55,8 @@ class Plugin extends AppPlugin {
         this.forceFullSync = false;
     }
 
-    waitForSyncHub() {
-        if (window.syncHub) {
-            this.registerWithSyncHub();
-        } else {
-            setTimeout(() => this.waitForSyncHub(), 1000);
-        }
-    }
-
     async registerWithSyncHub() {
+        console.log('[GitHub] Registering with Sync Hub...');
         await window.syncHub.register({
             id: 'github-sync',
             name: 'GitHub',
@@ -62,6 +64,7 @@ class Plugin extends AppPlugin {
             defaultInterval: '5m',
             sync: async (ctx) => this.sync(ctx),
         });
+        console.log('[GitHub] Registered successfully');
     }
 
     // =========================================================================

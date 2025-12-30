@@ -33,8 +33,12 @@ class Plugin extends CollectionPlugin {
             parseMarkdown: (markdown) => this.parseMarkdown(markdown),
         };
 
-        // Track registered sync functions
+        // Track registered sync functions (MUST be before event dispatch!)
         this.syncFunctions = new Map();
+
+        // Dispatch event so plugins can (re)register
+        console.log('[SyncHub] Ready, dispatching synchub-ready event');
+        window.dispatchEvent(new CustomEvent('synchub-ready'));
 
         // Track currently syncing plugin for status bar
         this.currentlySyncing = null;
@@ -72,6 +76,9 @@ class Plugin extends CollectionPlugin {
 
         // Initial status update
         setTimeout(() => this.updateStatusBar(), 500);
+
+        // Periodic status bar refresh (every 30s to update relative times)
+        this.statusBarRefreshInterval = setInterval(() => this.updateStatusBar(), 30000);
     }
 
     onUnload() {
@@ -86,6 +93,9 @@ class Plugin extends CollectionPlugin {
         }
         if (this.statusBarItem) {
             this.statusBarItem.remove();
+        }
+        if (this.statusBarRefreshInterval) {
+            clearInterval(this.statusBarRefreshInterval);
         }
         this.stopScheduler();
         delete window.syncHub;
@@ -149,6 +159,7 @@ class Plugin extends CollectionPlugin {
 
         // Store the sync function
         this.syncFunctions.set(id, sync);
+        console.log(`[SyncHub] Registered plugin: ${id} (${this.syncFunctions.size} total)`);
 
         // Find or create the plugin record
         let record = await this.findPluginRecord(id);
@@ -891,6 +902,7 @@ class Plugin extends CollectionPlugin {
 
         try {
             const records = await this.myCollection?.getAllRecords() || [];
+            console.log(`[SyncHub] updateStatusBar: ${records.length} records, syncing=${this.currentlySyncing}`);
 
             // Check if currently syncing
             if (this.currentlySyncing) {
@@ -902,7 +914,7 @@ class Plugin extends CollectionPlugin {
 
             // Check for errors
             const errorRecords = records.filter(r => {
-                const enabled = r.prop('enabled')?.value;
+                const enabled = r.prop('enabled')?.choice() === 'yes';
                 const status = r.prop('status')?.choice();
                 return enabled && status === 'error';
             });
@@ -915,7 +927,7 @@ class Plugin extends CollectionPlugin {
             }
 
             // Check enabled plugins
-            const enabledRecords = records.filter(r => r.prop('enabled')?.value);
+            const enabledRecords = records.filter(r => r.prop('enabled')?.choice() === 'yes');
 
             if (enabledRecords.length === 0) {
                 this.statusBarItem.setHtmlLabel(this.buildStatusLabel('disabled'));
@@ -923,16 +935,16 @@ class Plugin extends CollectionPlugin {
                 return;
             }
 
-            // Find oldest last_run for relative time
-            let oldestRun = null;
+            // Find most recent last_run for relative time
+            let latestRun = null;
             for (const r of enabledRecords) {
                 const lastRun = r.prop('last_run')?.date();
-                if (lastRun && (!oldestRun || lastRun < oldestRun)) {
-                    oldestRun = lastRun;
+                if (lastRun && (!latestRun || lastRun > latestRun)) {
+                    latestRun = lastRun;
                 }
             }
 
-            const relativeTime = oldestRun ? this.formatRelativeTime(oldestRun) : 'never';
+            const relativeTime = latestRun ? this.formatRelativeTime(latestRun) : 'never';
             this.statusBarItem.setHtmlLabel(this.buildStatusLabel('idle'));
             this.statusBarItem.setTooltip(`Sync Hub - Last sync: ${relativeTime} (${enabledRecords.length} active)`);
 
@@ -983,9 +995,11 @@ class Plugin extends CollectionPlugin {
      * Sync all enabled plugins
      */
     async syncAll() {
+        console.log('[SyncHub] syncAll triggered');
         try {
             const records = await this.myCollection?.getAllRecords() || [];
-            const enabledRecords = records.filter(r => r.prop('enabled')?.value);
+            const enabledRecords = records.filter(r => r.prop('enabled')?.choice() === 'yes');
+            console.log(`[SyncHub] Found ${enabledRecords.length} enabled plugins`);
 
             if (enabledRecords.length === 0) {
                 this.ui.addToaster({
