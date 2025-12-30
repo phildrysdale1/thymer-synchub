@@ -1,13 +1,14 @@
 /**
  * Google Calendar Sync - App Plugin
  *
- * Syncs events from Google Calendar into the Events collection.
+ * Syncs events from Google Calendar into the Calendar collection.
  * Uses thymer-auth worker for OAuth token refresh.
+ * Uses Thymer's DateTime class for proper time range support.
  *
  * Config format (from thymer-auth):
  * {
  *   "refresh_token": "...",
- *   "token_endpoint": "https://thymer-auth.workers.dev/refresh"
+ *   "token_endpoint": "https://thymerhelper.lifelog.my/google/refresh"
  * }
  */
 
@@ -234,12 +235,12 @@ class Plugin extends AppPlugin {
             return { summary: 'Auth failed', created: 0, updated: 0, changes: [] };
         }
 
-        // Find Events collection
-        const eventsCollection = collections.find(c => c.getName() === 'Events');
+        // Find Calendar collection
+        const calendarCollection = collections.find(c => c.getName() === 'Calendar');
 
-        if (!eventsCollection) {
-            log('Events collection not found');
-            return { summary: 'Events collection not found', created: 0, updated: 0, changes: [] };
+        if (!calendarCollection) {
+            log('Calendar collection not found');
+            return { summary: 'Calendar collection not found', created: 0, updated: 0, changes: [] };
         }
 
         // Determine sync window
@@ -266,7 +267,7 @@ class Plugin extends AppPlugin {
             const events = await this.fetchEvents(accessToken, timeMin, timeMax, { log, debug });
             debug(`Fetched ${events.length} events`);
 
-            const result = await this.processEvents(events, eventsCollection, data, { log, debug });
+            const result = await this.processEvents(events, calendarCollection, data, { log, debug });
 
             const summary = result.created > 0 || result.updated > 0
                 ? `${result.created} new, ${result.updated} updated`
@@ -348,12 +349,12 @@ class Plugin extends AppPlugin {
     // Event Processing
     // =========================================================================
 
-    async processEvents(events, eventsCollection, data, { log, debug }) {
+    async processEvents(events, calendarCollection, data, { log, debug }) {
         let created = 0;
         let updated = 0;
         const changes = [];
 
-        const existingRecords = await eventsCollection.getAllRecords();
+        const existingRecords = await calendarCollection.getAllRecords();
 
         for (const event of events) {
             // Skip cancelled events
@@ -364,17 +365,9 @@ class Plugin extends AppPlugin {
             const externalId = `gcal_${event.id}`;
             const existingRecord = existingRecords.find(r => r.text('external_id') === externalId);
 
-            // Parse event times
+            // Parse event times using Thymer's DateTime class for proper range support
             const isAllDay = !!event.start?.date; // All-day events use 'date', not 'dateTime'
-            let startTime, endTime;
-
-            if (isAllDay) {
-                startTime = new Date(event.start.date);
-                endTime = event.end?.date ? new Date(event.end.date) : startTime;
-            } else {
-                startTime = new Date(event.start.dateTime);
-                endTime = event.end?.dateTime ? new Date(event.end.dateTime) : startTime;
-            }
+            const timePeriod = this.buildTimePeriod(event, isAllDay);
 
             // Build attendees list
             const attendees = (event.attendees || [])
@@ -383,15 +376,25 @@ class Plugin extends AppPlugin {
                 .slice(0, 5) // Limit to first 5
                 .join(', ');
 
+            // Extract Google Meet link from conferenceData
+            const meetLink = event.conferenceData?.entryPoints?.find(e => e.entryPointType === 'video')?.uri || '';
+
+            // Map Google Calendar status to our status field
+            const status = event.status === 'tentative' ? 'tentative' : 'confirmed';
+
             const eventData = {
                 external_id: externalId,
                 title: event.summary || 'Untitled Event',
-                source: 'Google',
-                time_period: startTime,
+                source: 'google',
+                calendar: 'primary', // TODO: support multiple calendars
+                status: status,
+                time_period: timePeriod,
                 location: event.location || '',
                 attendees: attendees,
+                meet_link: meetLink,
                 url: event.htmlLink || '',
                 all_day: isAllDay,
+                description: event.description || '',
                 // For change detection
                 updated_at: event.updated,
             };
@@ -412,7 +415,7 @@ class Plugin extends AppPlugin {
                     });
                 }
             } else {
-                const record = await this.createRecord(eventsCollection, eventData);
+                const record = await this.createRecord(calendarCollection, eventData);
                 created++;
                 debug(`Created: ${eventData.title}`);
 
@@ -428,6 +431,59 @@ class Plugin extends AppPlugin {
         }
 
         return { created, updated, changes };
+    }
+
+    /**
+     * Build a DateTime value with proper range support.
+     * Uses Thymer's DateTime class for time ranges.
+     */
+    buildTimePeriod(event, isAllDay) {
+        let startDate, endDate;
+
+        if (isAllDay) {
+            startDate = new Date(event.start.date);
+            endDate = event.end?.date ? new Date(event.end.date) : startDate;
+        } else {
+            startDate = new Date(event.start.dateTime);
+            endDate = event.end?.dateTime ? new Date(event.end.dateTime) : startDate;
+        }
+
+        // Check if DateTime class is available (Thymer global)
+        if (typeof DateTime === 'undefined') {
+            // Fallback to plain Date if DateTime not available
+            return startDate;
+        }
+
+        const startDt = new DateTime(startDate);
+
+        // For all-day events, strip the time component
+        if (isAllDay) {
+            startDt.setTime(null);
+        }
+
+        // If we have an end time, create a range
+        if (endDate && endDate.getTime() !== startDate.getTime()) {
+            if (isAllDay) {
+                // Google Calendar uses exclusive end dates for all-day events
+                // Dec 27 all-day → start=Dec 27, end=Dec 28 (exclusive)
+                // Subtract 1 day to make it inclusive
+                endDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
+
+                // If start == adjusted end, it's a single day - no range needed
+                if (startDate.toDateString() !== endDate.toDateString()) {
+                    // Multi-day all-day event
+                    const endDt = new DateTime(endDate);
+                    endDt.setTime(null);
+                    startDt.setRangeTo(endDt);
+                }
+            } else {
+                // Regular timed event - create range with both times
+                const endDt = new DateTime(endDate);
+                startDt.setRangeTo(endDt);
+            }
+        }
+
+        return startDt.value();
     }
 
     // =========================================================================
@@ -463,9 +519,12 @@ class Plugin extends AppPlugin {
     setRecordFields(record, data) {
         this.setField(record, 'external_id', data.external_id);
         this.setField(record, 'source', data.source);
+        this.setField(record, 'calendar', data.calendar);
+        this.setField(record, 'status', data.status);
         this.setField(record, 'time_period', data.time_period);
         this.setField(record, 'location', data.location);
         this.setField(record, 'attendees', data.attendees);
+        this.setField(record, 'meet_link', data.meet_link);
         this.setField(record, 'url', data.url);
         this.setField(record, 'all_day', data.all_day);
         this.setField(record, 'updated_at', data.updated_at);

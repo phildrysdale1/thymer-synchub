@@ -1,6 +1,6 @@
 # Google Calendar Sync
 
-Syncs events from Google Calendar into your Events collection.
+Syncs events from Google Calendar into your Calendar collection with proper time range support.
 
 ## Setup
 
@@ -31,11 +31,22 @@ You can also trigger a manual sync from the command palette:
 ## What Gets Synced
 
 - Event title
-- Start/end time (including all-day events)
+- Time period with full range support (start + end as DateTime range)
+- All-day events (displayed without time, multi-day as range)
+- Event status (Confirmed/Tentative)
 - Location
 - Attendees (first 5)
+- Google Meet link (from conferenceData)
 - Event URL
 - Event description (as document content)
+
+## Calendar Collection Views
+
+- **Calendar** - Month/week calendar view
+- **Upcoming** - Table of events with prep tracking
+- **By Calendar** - Board grouped by calendar (Primary/Work/Personal)
+- **By Source** - Board grouped by sync source (Google/Outlook/etc)
+- **Review** - Track meeting energy and outcomes
 
 ## Sync Window
 
@@ -69,6 +80,6 @@ The refresh token may have expired. Visit the auth helper to reconnect:
 [Connect Google Calendar](https://thymerhelper.lifelog.my/google?service=calendar)
 
 ### Events not appearing
-- Check the Events collection exists
+- Check the Calendar collection exists
 - Check the sync is actually running (look for journal entries)
 - Try a Full Sync from the command palette
