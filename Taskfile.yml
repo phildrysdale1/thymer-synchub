@@ -1,0 +1,176 @@
+version: '3'
+
+vars:
+  PLUGINS_DIR: plugins
+  COLLECTIONS_DIR: collections
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  # =============================================================================
+  # Development
+  # =============================================================================
+
+  list:plugins:
+    desc: List all plugins
+    cmds:
+      - ls -1 {{.PLUGINS_DIR}}
+
+  list:collections:
+    desc: List all collections
+    cmds:
+      - ls -1 {{.COLLECTIONS_DIR}}
+
+  # =============================================================================
+  # Clipboard helpers (for deploying to Thymer)
+  # =============================================================================
+
+  copy:plugin:
+    desc: Copy a plugin to clipboard (usage - task copy:plugin -- github)
+    cmds:
+      - cat {{.PLUGINS_DIR}}/{{.CLI_ARGS}}/plugin.js | wl-copy
+      - echo "Copied {{.CLI_ARGS}}/plugin.js to clipboard"
+
+  copy:collection:
+    desc: Copy a collection schema to clipboard (usage - task copy:collection -- issues)
+    cmds:
+      - cat {{.COLLECTIONS_DIR}}/{{.CLI_ARGS}}/collection.json | wl-copy
+      - echo "Copied {{.CLI_ARGS}}/collection.json to clipboard"
+
+  copy:synchub:
+    desc: Copy Sync Hub plugin to clipboard
+    cmds:
+      - cat synchub/plugin.js | wl-copy
+      - echo "Copied synchub/plugin.js to clipboard"
+
+  copy:synchub:collection:
+    desc: Copy Sync Hub collection schema to clipboard
+    cmds:
+      - cat synchub/collection.json | wl-copy
+      - echo "Copied synchub/collection.json to clipboard"
+
+  # =============================================================================
+  # File paths (when clipboard doesn't work)
+  # =============================================================================
+
+  path:plugin:
+    desc: Print plugin file path (usage - task path:plugin -- github)
+    cmds:
+      - realpath {{.PLUGINS_DIR}}/{{.CLI_ARGS}}/plugin.js
+
+  path:collection:
+    desc: Print collection schema path (usage - task path:collection -- issues)
+    cmds:
+      - realpath {{.COLLECTIONS_DIR}}/{{.CLI_ARGS}}/collection.json
+
+  # =============================================================================
+  # New plugin scaffolding
+  # =============================================================================
+
+  new:plugin:
+    desc: Create a new plugin from template (usage - task new:plugin -- my-plugin)
+    cmds:
+      - cp -r {{.PLUGINS_DIR}}/_template {{.PLUGINS_DIR}}/{{.CLI_ARGS}}
+      - echo "Created {{.PLUGINS_DIR}}/{{.CLI_ARGS}}/"
+      - echo "Edit plugin.js and plugin.json to customize"
+
+  new:collection:
+    desc: Create a new collection (usage - task new:collection -- my-collection)
+    cmds:
+      - mkdir -p {{.COLLECTIONS_DIR}}/{{.CLI_ARGS}}
+      - |
+        cat > {{.COLLECTIONS_DIR}}/{{.CLI_ARGS}}/collection.json << 'EOF'
+        {
+          "ver": 1,
+          "name": "{{.CLI_ARGS}}",
+          "icon": "ti-folder",
+          "home": false,
+          "page_field_ids": [],
+          "item_name": "Item",
+          "description": "Description here",
+          "show_sidebar_items": true,
+          "show_cmdpal_items": true,
+          "fields": [
+            {
+              "icon": "ti-id",
+              "id": "external_id",
+              "label": "External ID",
+              "type": "text",
+              "read_only": true,
+              "active": true
+            }
+          ],
+          "sidebar_record_sort_dir": "desc",
+          "sidebar_record_sort_field_id": "created_at",
+          "managed": {"fields": false, "views": false, "sidebar": false},
+          "custom": {},
+          "views": []
+        }
+        EOF
+      - echo "Created {{.COLLECTIONS_DIR}}/{{.CLI_ARGS}}/collection.json"
+
+  # =============================================================================
+  # Git shortcuts
+  # =============================================================================
+
+  status:
+    desc: Git status
+    cmds:
+      - git status
+
+  diff:
+    desc: Git diff
+    cmds:
+      - git diff
+
+  push:
+    desc: Git push
+    cmds:
+      - git push
+
+  # =============================================================================
+  # Documentation
+  # =============================================================================
+
+  docs:
+    desc: Show plugin creation guide
+    cmds:
+      - cat CREATING_PLUGINS.md
+
+  # =============================================================================
+  # Validation
+  # =============================================================================
+
+  validate:json:
+    desc: Validate all collection.json files
+    cmds:
+      - |
+        for f in {{.COLLECTIONS_DIR}}/*/collection.json synchub/collection.json; do
+          echo "Validating $f..."
+          python3 -m json.tool "$f" > /dev/null && echo "  ✓ Valid" || echo "  ✗ Invalid"
+        done
+
+  validate:plugins:
+    desc: Check plugin.json files exist and are valid
+    cmds:
+      - |
+        for d in {{.PLUGINS_DIR}}/*/; do
+          name=$(basename "$d")
+          if [ "$name" = "_template" ]; then continue; fi
+
+          if [ -f "$d/plugin.json" ]; then
+            echo "✓ $name/plugin.json exists"
+            python3 -m json.tool "$d/plugin.json" > /dev/null || echo "  ✗ Invalid JSON"
+          else
+            echo "✗ $name/plugin.json missing"
+          fi
+
+          if [ -f "$d/plugin.js" ]; then
+            echo "✓ $name/plugin.js exists"
+          else
+            echo "✗ $name/plugin.js missing"
+          fi
+        done

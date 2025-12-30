@@ -78,6 +78,14 @@
             "type": "checkbox",
             "read_only": true,
             "active": true
+        },
+        {
+            "icon": "ti-refresh",
+            "id": "updated_at",
+            "label": "Updated At",
+            "type": "text",
+            "read_only": true,
+            "active": false
         }
     ],
     "sidebar_record_sort_dir": "asc",
