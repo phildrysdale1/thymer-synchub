@@ -36,6 +36,16 @@ class Plugin extends CollectionPlugin {
         // Track registered sync functions
         this.syncFunctions = new Map();
 
+        // Track currently syncing plugin for status bar
+        this.currentlySyncing = null;
+
+        // Status bar item
+        this.statusBarItem = this.ui.addStatusBarItem({
+            htmlLabel: this.buildStatusLabel('idle'),
+            tooltip: 'Sync Hub - Initializing...',
+            onClick: () => this.onStatusBarClick()
+        });
+
         // Command palette: Paste Markdown
         this.pasteCommand = this.ui.addCommandPaletteCommand({
             label: 'Paste Markdown',
@@ -43,13 +53,29 @@ class Plugin extends CollectionPlugin {
             onSelected: () => this.pasteMarkdownFromClipboard()
         });
 
+        // Command palette: Sync All
+        this.syncAllCommand = this.ui.addCommandPaletteCommand({
+            label: 'Sync Hub: Sync All',
+            icon: 'refresh',
+            onSelected: () => this.syncAll()
+        });
+
         // Start the scheduler
         this.startScheduler();
+
+        // Initial status update
+        setTimeout(() => this.updateStatusBar(), 500);
     }
 
     onUnload() {
         if (this.pasteCommand) {
             this.pasteCommand.remove();
+        }
+        if (this.syncAllCommand) {
+            this.syncAllCommand.remove();
+        }
+        if (this.statusBarItem) {
+            this.statusBarItem.remove();
         }
         this.stopScheduler();
         delete window.syncHub;
@@ -275,6 +301,8 @@ class Plugin extends CollectionPlugin {
 
         // Update status to syncing
         record.prop('status')?.setChoice('syncing');
+        this.currentlySyncing = pluginId;
+        this.updateStatusBar();
 
         try {
             const startTime = Date.now();
@@ -297,6 +325,8 @@ class Plugin extends CollectionPlugin {
             record.prop('status')?.setChoice('idle');
             this.setLastRun(record);
             record.prop('last_error')?.set(null);
+            this.currentlySyncing = null;
+            this.updateStatusBar();
 
             // Log each change with verb + record reference
             const changes = result?.changes || [];
@@ -331,6 +361,8 @@ class Plugin extends CollectionPlugin {
             record.prop('status')?.setChoice('error');
             this.setLastRun(record);
             record.prop('last_error')?.set(errorMsg);
+            this.currentlySyncing = null;
+            this.updateStatusBar();
 
             await this.appendLog(record.guid, `ERROR: ${errorMsg}`, 'error');
 
@@ -810,6 +842,181 @@ class Plugin extends CollectionPlugin {
         } else {
             // Fallback to plain Date
             prop.set(now);
+        }
+    }
+
+    // =========================================================================
+    // Status Bar
+    // =========================================================================
+
+    /**
+     * Build HTML label for status bar
+     */
+    buildStatusLabel(state, extra = '') {
+        const icon = '↻'; // sync icon
+        let indicator;
+
+        switch (state) {
+            case 'syncing':
+                // Spinning animation via CSS
+                indicator = '<span style="display: inline-block; animation: spin 1s linear infinite; color: #60a5fa;">↻</span>';
+                break;
+            case 'error':
+                indicator = '<span style="color: #f87171;">●</span>';
+                break;
+            case 'idle':
+                indicator = '<span style="color: #4ade80;">●</span>';
+                break;
+            case 'disabled':
+                indicator = '<span style="opacity: 0.4;">○</span>';
+                break;
+            default:
+                indicator = '<span style="opacity: 0.4;">...</span>';
+        }
+
+        // Add CSS for spin animation if not already present
+        const style = state === 'syncing'
+            ? '<style>@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }</style>'
+            : '';
+
+        return `${style}<span style="font-size: 13px; opacity: 0.8;">⟳</span> ${indicator}${extra ? ' ' + extra : ''}`;
+    }
+
+    /**
+     * Update status bar based on current sync state
+     */
+    async updateStatusBar() {
+        if (!this.statusBarItem) return;
+
+        try {
+            const records = await this.myCollection?.getAllRecords() || [];
+
+            // Check if currently syncing
+            if (this.currentlySyncing) {
+                const name = this.getPluginName(this.currentlySyncing);
+                this.statusBarItem.setHtmlLabel(this.buildStatusLabel('syncing'));
+                this.statusBarItem.setTooltip(`Syncing ${name}...`);
+                return;
+            }
+
+            // Check for errors
+            const errorRecords = records.filter(r => {
+                const enabled = r.prop('enabled')?.value;
+                const status = r.prop('status')?.choice();
+                return enabled && status === 'error';
+            });
+
+            if (errorRecords.length > 0) {
+                const names = errorRecords.map(r => this.getPluginName(r.text('plugin_id'))).join(', ');
+                this.statusBarItem.setHtmlLabel(this.buildStatusLabel('error'));
+                this.statusBarItem.setTooltip(`Sync errors: ${names}`);
+                return;
+            }
+
+            // Check enabled plugins
+            const enabledRecords = records.filter(r => r.prop('enabled')?.value);
+
+            if (enabledRecords.length === 0) {
+                this.statusBarItem.setHtmlLabel(this.buildStatusLabel('disabled'));
+                this.statusBarItem.setTooltip('Sync Hub - No syncs enabled');
+                return;
+            }
+
+            // Find oldest last_run for relative time
+            let oldestRun = null;
+            for (const r of enabledRecords) {
+                const lastRun = r.prop('last_run')?.date();
+                if (lastRun && (!oldestRun || lastRun < oldestRun)) {
+                    oldestRun = lastRun;
+                }
+            }
+
+            const relativeTime = oldestRun ? this.formatRelativeTime(oldestRun) : 'never';
+            this.statusBarItem.setHtmlLabel(this.buildStatusLabel('idle'));
+            this.statusBarItem.setTooltip(`Sync Hub - Last sync: ${relativeTime} (${enabledRecords.length} active)`);
+
+        } catch (e) {
+            // Silently ignore errors during status update
+        }
+    }
+
+    /**
+     * Get friendly plugin name from ID
+     */
+    getPluginName(pluginId) {
+        const names = {
+            'github-sync': 'GitHub',
+            'readwise-sync': 'Readwise',
+            'google-calendar-sync': 'Calendar',
+        };
+        return names[pluginId] || pluginId;
+    }
+
+    /**
+     * Format relative time (e.g., "5m ago", "2h ago")
+     */
+    formatRelativeTime(date) {
+        const now = new Date();
+        const diff = now - date;
+        const seconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (seconds < 60) return 'just now';
+        if (minutes < 60) return `${minutes}m ago`;
+        if (hours < 24) return `${hours}h ago`;
+        return `${days}d ago`;
+    }
+
+    /**
+     * Handle status bar click - open Sync Hub collection
+     */
+    onStatusBarClick() {
+        // TODO: Open Sync Hub collection view
+        // For now, trigger sync all
+        this.syncAll();
+    }
+
+    /**
+     * Sync all enabled plugins
+     */
+    async syncAll() {
+        try {
+            const records = await this.myCollection?.getAllRecords() || [];
+            const enabledRecords = records.filter(r => r.prop('enabled')?.value);
+
+            if (enabledRecords.length === 0) {
+                this.ui.addToaster({
+                    title: 'Sync Hub',
+                    message: 'No syncs enabled',
+                    dismissible: true,
+                    autoDestroyTime: 2000,
+                });
+                return;
+            }
+
+            this.ui.addToaster({
+                title: 'Sync Hub',
+                message: `Syncing ${enabledRecords.length} plugins...`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+
+            for (const record of enabledRecords) {
+                const pluginId = record.text('plugin_id');
+                if (pluginId && this.syncFunctions.has(pluginId)) {
+                    await this.runSync(pluginId, record);
+                }
+            }
+
+        } catch (e) {
+            this.ui.addToaster({
+                title: 'Sync Hub',
+                message: `Sync all failed: ${e.message}`,
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
         }
     }
 }
