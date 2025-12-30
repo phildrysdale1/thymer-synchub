@@ -1,0 +1,5 @@
+{
+    "name": "Telegram Sync",
+    "icon": "ti-brand-telegram",
+    "description": "Capture messages from your Telegram bot with smart routing to Journal, Captures, or Issues"
+}
