@@ -1,325 +1,327 @@
 {
-    "ver": 1,
-    "name": "Sync Hub",
-    "icon": "ti-refresh",
-    "home": false,
-    "page_field_ids": [
+  "ver": 1,
+  "name": "Sync Hub",
+  "icon": "ti-refresh",
+  "home": false,
+  "page_field_ids": [
+    "plugin_id",
+    "enabled",
+    "status",
+    "last_run",
+    "journal",
+    "last_error"
+  ],
+  "item_name": "Plugin",
+  "description": "Plugin orchestrator - registers sync plugins, manages scheduling",
+  "show_sidebar_items": true,
+  "show_cmdpal_items": true,
+  "fields": [
+    {
+      "icon": "ti-id",
+      "id": "plugin_id",
+      "label": "Plugin ID",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-check",
+      "id": "enabled",
+      "label": "Enabled",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "yes",
+          "label": "Yes",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "no",
+          "label": "No",
+          "color": "9",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-clock",
+      "id": "interval",
+      "label": "Interval",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "1m",
+          "label": "1 min",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "5m",
+          "label": "5 min",
+          "color": "3",
+          "active": true
+        },
+        {
+          "id": "15m",
+          "label": "15 min",
+          "color": "4",
+          "active": true
+        },
+        {
+          "id": "1h",
+          "label": "1 hour",
+          "color": "11",
+          "active": true
+        },
+        {
+          "id": "manual",
+          "label": "Manual",
+          "color": "9",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-book",
+      "id": "journal",
+      "label": "Journal",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "none",
+          "label": "None",
+          "color": "9",
+          "active": true
+        },
+        {
+          "id": "major_only",
+          "label": "Major Only",
+          "color": "3",
+          "active": true
+        },
+        {
+          "id": "verbose",
+          "label": "Verbose",
+          "color": "2",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-bell",
+      "id": "toast",
+      "label": "Toast",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "all_updates",
+          "label": "All Updates",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "new_records",
+          "label": "New Records",
+          "color": "3",
+          "active": true
+        },
+        {
+          "id": "errors_only",
+          "label": "Errors Only",
+          "color": "4",
+          "active": true
+        },
+        {
+          "id": "none",
+          "label": "None",
+          "color": "1",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-bug",
+      "id": "log_level",
+      "label": "Log Level",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "info",
+          "label": "Info",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "debug",
+          "label": "Debug",
+          "color": "4",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-activity",
+      "id": "status",
+      "label": "Status",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "idle",
+          "label": "Idle",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "syncing",
+          "label": "Syncing",
+          "color": "3",
+          "active": true
+        },
+        {
+          "id": "error",
+          "label": "Error",
+          "color": "5",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-run",
+      "id": "last_run",
+      "label": "Last Run",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "datetime"
+    },
+    {
+      "icon": "ti-alert-triangle",
+      "id": "last_error",
+      "label": "Last Error",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-key",
+      "id": "token",
+      "label": "Token",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-settings",
+      "id": "config",
+      "label": "Config",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-photo",
+      "id": "banner",
+      "label": "Banner",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "banner"
+    },
+    {
+      "icon": "ti-abc",
+      "id": "title",
+      "label": "Title",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-clock-edit",
+      "id": "updated_at",
+      "label": "Modified",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "datetime"
+    },
+    {
+      "icon": "ti-clock-plus",
+      "id": "created_at",
+      "label": "Created",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "datetime"
+    }
+  ],
+  "sidebar_record_sort_dir": "asc",
+  "sidebar_record_sort_field_id": "plugin_id",
+  "managed": {
+    "fields": false,
+    "views": false,
+    "sidebar": false
+  },
+  "custom": {},
+  "views": [
+    {
+      "id": "VSYNCHUB001",
+      "shown": true,
+      "icon": "",
+      "label": "Status",
+      "description": "",
+      "field_ids": ["plugin_id", "enabled", "interval", "last_run"],
+      "type": "board",
+      "read_only": false,
+      "group_by_field_id": "status",
+      "sort_dir": "asc",
+      "sort_field_id": "plugin_id",
+      "opts": {}
+    },
+    {
+      "id": "VSYNCHUB002",
+      "shown": true,
+      "icon": "",
+      "label": "All Plugins",
+      "description": "",
+      "field_ids": [
         "plugin_id",
         "enabled",
         "status",
         "interval",
+        "journal",
+        "toast",
         "last_run"
-    ],
-    "item_name": "Plugin",
-    "description": "Plugin orchestrator - registers sync plugins, manages scheduling",
-    "show_sidebar_items": true,
-    "show_cmdpal_items": true,
-    "fields": [
-        {
-            "icon": "ti-id",
-            "id": "plugin_id",
-            "label": "Plugin ID",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "text"
-        },
-        {
-            "icon": "ti-check",
-            "id": "enabled",
-            "label": "Enabled",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "choice",
-            "choices": [
-                {
-                    "id": "yes",
-                    "label": "Yes",
-                    "color": "2",
-                    "active": true
-                },
-                {
-                    "id": "no",
-                    "label": "No",
-                    "color": "9",
-                    "active": true
-                }
-            ]
-        },
-        {
-            "icon": "ti-clock",
-            "id": "interval",
-            "label": "Interval",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "choice",
-            "choices": [
-                {
-                    "id": "1m",
-                    "label": "1 min",
-                    "color": "2",
-                    "active": true
-                },
-                {
-                    "id": "5m",
-                    "label": "5 min",
-                    "color": "3",
-                    "active": true
-                },
-                {
-                    "id": "15m",
-                    "label": "15 min",
-                    "color": "4",
-                    "active": true
-                },
-                {
-                    "id": "1h",
-                    "label": "1 hour",
-                    "color": "11",
-                    "active": true
-                },
-                {
-                    "id": "manual",
-                    "label": "Manual",
-                    "color": "9",
-                    "active": true
-                }
-            ]
-        },
-        {
-            "icon": "ti-book",
-            "id": "journal",
-            "label": "Journal",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "choice",
-            "choices": [
-                {
-                    "id": "yes",
-                    "label": "Yes",
-                    "color": "2",
-                    "active": true
-                },
-                {
-                    "id": "no",
-                    "label": "No",
-                    "color": "9",
-                    "active": true
-                }
-            ]
-        },
-        {
-            "icon": "ti-bell",
-            "id": "toast",
-            "label": "Toast",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "choice",
-            "choices": [
-                {
-                    "id": "all_updates",
-                    "label": "All Updates",
-                    "color": "2",
-                    "active": true
-                },
-                {
-                    "id": "new_records",
-                    "label": "New Records",
-                    "color": "3",
-                    "active": true
-                },
-                {
-                    "id": "errors_only",
-                    "label": "Errors Only",
-                    "color": "4",
-                    "active": true
-                },
-                {
-                    "id": "none",
-                    "label": "None",
-                    "color": "1",
-                    "active": true
-                }
-            ]
-        },
-        {
-            "icon": "ti-bug",
-            "id": "log_level",
-            "label": "Log Level",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "choice",
-            "choices": [
-                {
-                    "id": "info",
-                    "label": "Info",
-                    "color": "2",
-                    "active": true
-                },
-                {
-                    "id": "debug",
-                    "label": "Debug",
-                    "color": "4",
-                    "active": true
-                }
-            ]
-        },
-        {
-            "icon": "ti-activity",
-            "id": "status",
-            "label": "Status",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "choice",
-            "choices": [
-                {
-                    "id": "idle",
-                    "label": "Idle",
-                    "color": "2",
-                    "active": true
-                },
-                {
-                    "id": "syncing",
-                    "label": "Syncing",
-                    "color": "3",
-                    "active": true
-                },
-                {
-                    "id": "error",
-                    "label": "Error",
-                    "color": "5",
-                    "active": true
-                }
-            ]
-        },
-        {
-            "icon": "ti-run",
-            "id": "last_run",
-            "label": "Last Run",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "datetime"
-        },
-        {
-            "icon": "ti-alert-triangle",
-            "id": "last_error",
-            "label": "Last Error",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "text"
-        },
-        {
-            "icon": "ti-key",
-            "id": "token",
-            "label": "Token",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "text"
-        },
-        {
-            "icon": "ti-settings",
-            "id": "config",
-            "label": "Config",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "text"
-        },
-        {
-            "icon": "ti-photo",
-            "id": "banner",
-            "label": "Banner",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "banner"
-        },
-        {
-            "icon": "ti-abc",
-            "id": "title",
-            "label": "Title",
-            "many": false,
-            "read_only": false,
-            "active": true,
-            "type": "text"
-        },
-        {
-            "icon": "ti-clock-edit",
-            "id": "updated_at",
-            "label": "Modified",
-            "many": false,
-            "read_only": true,
-            "active": true,
-            "type": "datetime"
-        },
-        {
-            "icon": "ti-clock-plus",
-            "id": "created_at",
-            "label": "Created",
-            "many": false,
-            "read_only": true,
-            "active": true,
-            "type": "datetime"
-        }
-    ],
-    "sidebar_record_sort_dir": "asc",
-    "sidebar_record_sort_field_id": "plugin_id",
-    "managed": {
-        "fields": false,
-        "views": false,
-        "sidebar": false
-    },
-    "custom": {},
-    "views": [
-        {
-            "id": "VSYNCHUB001",
-            "shown": true,
-            "icon": "",
-            "label": "Status",
-            "description": "",
-            "field_ids": [
-                "plugin_id",
-                "enabled",
-                "interval",
-                "last_run"
-            ],
-            "type": "board",
-            "read_only": false,
-            "group_by_field_id": "status",
-            "sort_dir": "asc",
-            "sort_field_id": "plugin_id",
-            "opts": {}
-        },
-        {
-            "id": "VSYNCHUB002",
-            "shown": true,
-            "icon": "",
-            "label": "All Plugins",
-            "description": "",
-            "field_ids": [
-                "plugin_id",
-                "enabled",
-                "status",
-                "interval",
-                "journal",
-                "toast",
-                "last_run"
-            ],
-            "type": "table",
-            "read_only": false,
-            "group_by_field_id": null,
-            "sort_dir": "asc",
-            "sort_field_id": "plugin_id",
-            "opts": {}
-        }
-    ]
+      ],
+      "type": "table",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "asc",
+      "sort_field_id": "plugin_id",
+      "opts": {}
+    }
+  ]
 }

@@ -150,7 +150,11 @@ class Plugin extends CollectionPlugin {
             return null;
         }
 
-        const record = this.data.getRecord(recordGuid);
+        // Wait for record to sync (SDK quirk - getRecord returns null immediately)
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const records = await this.myCollection.getAllRecords();
+        const record = records.find(r => r.guid === recordGuid);
+
         if (!record) {
             this.log(`Could not find created record: ${recordGuid}`, 'error');
             return null;
@@ -161,7 +165,7 @@ class Plugin extends CollectionPlugin {
         record.prop('enabled')?.setChoice('yes');
         record.prop('status')?.setChoice('idle');
         record.prop('interval')?.setChoice(defaultInterval || '5m');
-        record.prop('journal')?.setChoice('yes');
+        record.prop('journal')?.setChoice('major_only');
         record.prop('toast')?.setChoice('new_records');
         record.prop('log_level')?.setChoice('info');
 
@@ -267,7 +271,7 @@ class Plugin extends CollectionPlugin {
 
         const logLevel = record.prop('log_level')?.choice() || 'info';
         const toastLevel = record.prop('toast')?.choice() || 'new_records';
-        const writeJournal = record.prop('journal')?.choice() === 'yes';
+        const journalLevel = record.prop('journal')?.choice() || 'none';
 
         // Update status to syncing
         record.prop('status')?.setChoice('syncing');
@@ -294,23 +298,31 @@ class Plugin extends CollectionPlugin {
             record.prop('last_run')?.set(new Date());
             record.prop('last_error')?.set(null);
 
-            // Log result
-            const summary = result?.summary || 'Sync complete';
-            await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
+            // Log each change with verb + record reference
+            const changes = result?.changes || [];
+            for (const change of changes) {
+                await this.appendChangeLog(record.guid, change.verb, change.title, change.guid);
+            }
+
+            // Log summary if no individual changes or in debug mode
+            if (changes.length === 0 || logLevel === 'debug') {
+                const summary = result?.summary || 'Sync complete';
+                await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
+            }
 
             // Toast notification
             if (this.shouldToast(toastLevel, result)) {
                 this.ui.addToaster({
                     title: pluginId,
-                    message: summary,
+                    message: result?.summary || 'Sync complete',
                     dismissible: true,
                     autoDestroyTime: 3000,
                 });
             }
 
-            // Journal entry
-            if (writeJournal && result?.journalEntry) {
-                // TODO: Write to daily journal
+            // Journal entries based on level
+            if (journalLevel !== 'none' && changes.length > 0) {
+                await this.writeChangesToJournal(changes, journalLevel);
             }
 
         } catch (error) {
@@ -346,6 +358,37 @@ class Plugin extends CollectionPlugin {
     // Activity Logging
     // =========================================================================
 
+    async appendChangeLog(syncHubRecordGuid, verb, title, targetRecordGuid) {
+        const timestamp = new Date().toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        });
+
+        // Append to Sync Hub record body with verb + record reference
+        try {
+            const record = this.data.getRecord(syncHubRecordGuid);
+            if (!record) return;
+
+            // Find the last top-level line item
+            const existingItems = await record.getLineItems();
+            const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
+            const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+            // Create new line item: **15:21** opened [[Record Title]]
+            const newItem = await record.createLineItem(null, lastItem, 'text');
+            if (newItem) {
+                newItem.setSegments([
+                    { type: 'bold', text: timestamp },
+                    { type: 'text', text: ` ${verb} ` },
+                    { type: 'ref', text: { guid: targetRecordGuid } }
+                ]);
+            }
+        } catch (e) {
+            // Silently fail - logging shouldn't break sync
+        }
+    }
+
     async appendLog(recordGuid, message, logLevel = 'info') {
         const timestamp = new Date().toLocaleTimeString('en-US', {
             hour: '2-digit',
@@ -360,7 +403,27 @@ class Plugin extends CollectionPlugin {
             console.log(`[SyncHub] [${recordGuid.slice(0,8)}] ${logLine}`);
         }
 
-        // TODO: Implement proper body appending via line items API
+        // Append to record body with rich formatting
+        try {
+            const record = this.data.getRecord(recordGuid);
+            if (!record) return;
+
+            // Find the last top-level line item
+            const existingItems = await record.getLineItems();
+            const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
+            const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+            // Create new line item after the last one
+            const newItem = await record.createLineItem(null, lastItem, 'text');
+            if (newItem) {
+                newItem.setSegments([
+                    { type: 'bold', text: timestamp },
+                    { type: 'text', text: ` ${message}` }
+                ]);
+            }
+        } catch (e) {
+            // Silently fail - logging shouldn't break sync
+        }
     }
 
     log(message, level = 'info') {
@@ -371,6 +434,98 @@ class Plugin extends CollectionPlugin {
             console.warn(prefix, message);
         } else {
             console.log(prefix, message);
+        }
+    }
+
+    // =========================================================================
+    // Journal Integration
+    // =========================================================================
+
+    async getTodayJournalRecord() {
+        try {
+            const collections = await this.data.getAllCollections();
+            const journalCollection = collections.find(c => c.getName() === 'Journal');
+            if (!journalCollection) return null;
+
+            // Get today's date in YYYY-MM-DD format
+            const today = new Date();
+            const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+            // Find record with matching date
+            const records = await journalCollection.getAllRecords();
+            for (const record of records) {
+                const dateProp = record.prop('date');
+                if (dateProp) {
+                    const recordDate = dateProp.date();
+                    if (recordDate) {
+                        const recordDateStr = recordDate.toISOString().split('T')[0];
+                        if (recordDateStr === dateStr) {
+                            return record;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async writeChangesToJournal(changes, level) {
+        const journalRecord = await this.getTodayJournalRecord();
+        if (!journalRecord) return;
+
+        // Filter changes based on level
+        const filteredChanges = level === 'major_only'
+            ? changes.filter(c => c.major)
+            : changes;
+
+        if (filteredChanges.length === 0) return;
+
+        const timestamp = new Date().toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        });
+
+        try {
+            // Find the last top-level line item
+            const existingItems = await journalRecord.getLineItems();
+            const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
+            let lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+            for (const change of filteredChanges) {
+                // Create parent line: **15:21** highlighted [[Record Title]]
+                const parentItem = await journalRecord.createLineItem(null, lastItem, 'text');
+                if (parentItem) {
+                    parentItem.setSegments([
+                        { type: 'bold', text: timestamp },
+                        { type: 'text', text: ` ${change.verb} ` },
+                        { type: 'ref', text: { guid: change.guid } }
+                    ]);
+                    lastItem = parentItem;
+
+                    // For verbose mode, add children as nested items
+                    if (level === 'verbose' && change.children && change.children.length > 0) {
+                        let childLastItem = null;
+                        for (const childText of change.children) {
+                            // Truncate long highlights
+                            const truncated = childText.length > 100
+                                ? childText.slice(0, 100) + '...'
+                                : childText;
+
+                            const childItem = await journalRecord.createLineItem(parentItem, childLastItem, 'quote');
+                            if (childItem) {
+                                childItem.setSegments([{ type: 'text', text: truncated }]);
+                                childLastItem = childItem;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // Silently fail - journal shouldn't break sync
         }
     }
 

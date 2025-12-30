@@ -73,7 +73,7 @@ class Plugin extends AppPlugin {
         const status = await window.syncHub.getStatus('github-sync');
         if (!status) {
             log('No config found in Sync Hub');
-            return { summary: 'Not configured', created: 0, updated: 0 };
+            return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 
         // Find our Sync Hub record to get token and config
@@ -82,7 +82,7 @@ class Plugin extends AppPlugin {
 
         if (!syncHubCollection) {
             log('Sync Hub collection not found');
-            return { summary: 'Sync Hub not found', created: 0, updated: 0 };
+            return { summary: 'Sync Hub not found', created: 0, updated: 0, changes: [] };
         }
 
         const syncHubRecords = await syncHubCollection.getAllRecords();
@@ -90,7 +90,7 @@ class Plugin extends AppPlugin {
 
         if (!myRecord) {
             log('GitHub Sync record not found in Sync Hub');
-            return { summary: 'Not configured', created: 0, updated: 0 };
+            return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 
         const token = myRecord.text('token');
@@ -99,7 +99,7 @@ class Plugin extends AppPlugin {
 
         if (!token) {
             log('No GitHub token configured');
-            return { summary: 'No token', created: 0, updated: 0 };
+            return { summary: 'No token', created: 0, updated: 0, changes: [] };
         }
 
         // Parse config (repos, query)
@@ -126,7 +126,7 @@ class Plugin extends AppPlugin {
 
         if (repos.length === 0 && !query) {
             log('No repos or query configured');
-            return { summary: 'No repos configured', created: 0, updated: 0 };
+            return { summary: 'No repos configured', created: 0, updated: 0, changes: [] };
         }
 
         // Find the Issues collection
@@ -134,11 +134,12 @@ class Plugin extends AppPlugin {
 
         if (!issuesCollection) {
             log('Issues collection not found');
-            return { summary: 'Issues collection not found', created: 0, updated: 0 };
+            return { summary: 'Issues collection not found', created: 0, updated: 0, changes: [] };
         }
 
         let totalCreated = 0;
         let totalUpdated = 0;
+        let allChanges = [];
 
         // Sync from search query
         if (query) {
@@ -146,6 +147,7 @@ class Plugin extends AppPlugin {
             const result = await this.syncFromSearch(token, query, issuesCollection, data, { log, debug, since });
             totalCreated += result.created;
             totalUpdated += result.updated;
+            allChanges = allChanges.concat(result.changes || []);
         }
 
         // Sync from specific repos
@@ -154,6 +156,7 @@ class Plugin extends AppPlugin {
             const result = await this.syncFromRepo(token, repo, issuesCollection, data, { log, debug, since });
             totalCreated += result.created;
             totalUpdated += result.updated;
+            allChanges = allChanges.concat(result.changes || []);
         }
 
         const summary = totalCreated > 0 || totalUpdated > 0
@@ -164,7 +167,7 @@ class Plugin extends AppPlugin {
             summary,
             created: totalCreated,
             updated: totalUpdated,
-            journalEntry: totalCreated > 0 ? `GitHub: ${totalCreated} new issues` : null,
+            changes: allChanges,
         };
     }
 
@@ -231,6 +234,7 @@ class Plugin extends AppPlugin {
     async processIssues(issues, issuesCollection, data, { log, debug }) {
         let created = 0;
         let updated = 0;
+        const changes = [];
 
         const existingRecords = await issuesCollection.getAllRecords();
 
@@ -243,14 +247,18 @@ class Plugin extends AppPlugin {
             const repoIndex = urlParts.indexOf('github.com') + 1;
             const repo = `${urlParts[repoIndex]}/${urlParts[repoIndex + 1]}`;
 
+            const isPR = !!issue.pull_request;
+            const isMerged = isPR && issue.pull_request?.merged_at;
+            const newState = issue.state === 'open' ? 'Open' : 'Closed';
+
             const issueData = {
                 external_id: externalId,
                 title: issue.title,
-                source: 'GitHub',  // Label, not ID
+                source: 'GitHub',
                 repo: repo,
                 number: issue.number,
-                type: issue.pull_request ? 'PR' : 'Issue',  // Labels from schema
-                state: issue.state === 'open' ? 'Open' : 'Closed',  // Labels from schema
+                type: isPR ? 'PR' : 'Issue',
+                state: newState,
                 author: issue.user?.login || '',
                 assignee: issue.assignee?.login || '',
                 url: issue.html_url,
@@ -263,18 +271,55 @@ class Plugin extends AppPlugin {
                 // Check if needs update
                 const currentUpdatedAt = existingRecord.text('updated_at');
                 if (currentUpdatedAt !== issue.updated_at) {
+                    // Detect state change for verb
+                    const oldState = existingRecord.prop('state')?.choice();
+                    const stateChanged = oldState !== newState;
+
+                    let verb, major;
+                    if (stateChanged) {
+                        verb = this.stateToVerb(newState, isMerged);
+                        major = true;  // State changes are major
+                    } else {
+                        verb = 'edited';
+                        major = false;  // Just edits are minor
+                    }
+
                     this.updateRecord(existingRecord, issueData);
                     updated++;
                     debug(`Updated: ${issue.title}`);
+
+                    changes.push({
+                        verb,
+                        title: issue.title,
+                        guid: existingRecord.guid,
+                        major,
+                    });
                 }
             } else {
-                await this.createRecord(issuesCollection, data, issueData);
+                const record = await this.createRecord(issuesCollection, data, issueData);
                 created++;
                 debug(`Created: ${issue.title}`);
+
+                if (record) {
+                    const verb = this.stateToVerb(newState, isMerged);
+                    changes.push({
+                        verb,
+                        title: issue.title,
+                        guid: record.guid,
+                        major: true,  // New records are always major
+                    });
+                }
             }
         }
 
-        return { created, updated };
+        return { created, updated, changes };
+    }
+
+    stateToVerb(state, merged) {
+        if (merged) return 'merged';
+        if (state === 'Open') return 'opened';
+        if (state === 'Closed') return 'closed';
+        return 'updated';
     }
 
     // =========================================================================
