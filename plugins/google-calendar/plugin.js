@@ -13,11 +13,21 @@
 
 class Plugin extends AppPlugin {
 
+    // Auth helper URL - change if self-hosting
+    static AUTH_URL = 'https://thymer-auth.workers.dev/google?service=calendar';
+
     // =========================================================================
     // Lifecycle
     // =========================================================================
 
     async onLoad() {
+        // Command palette: Connect Google Calendar
+        this.connectCommand = this.ui.addCommandPaletteCommand({
+            label: 'Connect Google Calendar',
+            icon: 'link',
+            onSelected: () => this.startConnect()
+        });
+
         // Command palette: Full Sync
         this.fullSyncCommand = this.ui.addCommandPaletteCommand({
             label: 'Google Calendar Full Sync',
@@ -32,18 +42,116 @@ class Plugin extends AppPlugin {
             onSelected: () => this.triggerSync(false)
         });
 
+        // Listen for auth callback from popup
+        this.messageHandler = (event) => this.handleAuthMessage(event);
+        window.addEventListener('message', this.messageHandler);
+
         this.waitForSyncHub();
     }
 
     onUnload() {
+        if (this.connectCommand) {
+            this.connectCommand.remove();
+        }
         if (this.fullSyncCommand) {
             this.fullSyncCommand.remove();
         }
         if (this.incrementalSyncCommand) {
             this.incrementalSyncCommand.remove();
         }
+        if (this.messageHandler) {
+            window.removeEventListener('message', this.messageHandler);
+        }
         if (window.syncHub) {
             window.syncHub.unregister('google-calendar-sync');
+        }
+    }
+
+    // =========================================================================
+    // OAuth Connect Flow
+    // =========================================================================
+
+    startConnect() {
+        // Open auth in popup
+        const width = 500;
+        const height = 700;
+        const left = (window.innerWidth - width) / 2 + window.screenX;
+        const top = (window.innerHeight - height) / 2 + window.screenY;
+
+        window.open(
+            Plugin.AUTH_URL,
+            'thymer-auth',
+            `width=${width},height=${height},left=${left},top=${top}`
+        );
+    }
+
+    async handleAuthMessage(event) {
+        // Validate message
+        if (!event.data || event.data.type !== 'thymer-auth') {
+            return;
+        }
+
+        if (event.data.service !== 'calendar') {
+            return; // Not for us
+        }
+
+        const config = event.data.config;
+        if (!config || !config.refresh_token || !config.token_endpoint) {
+            console.error('[Google Calendar] Invalid config received');
+            return;
+        }
+
+        // Save config to Sync Hub record
+        try {
+            await this.saveConfig(config);
+            console.log('[Google Calendar] Config saved successfully');
+
+            // Trigger initial sync
+            this.triggerSync(true);
+        } catch (e) {
+            console.error('[Google Calendar] Failed to save config:', e);
+        }
+    }
+
+    async saveConfig(config) {
+        const collections = await this.data.getAllCollections();
+        const syncHubCollection = collections.find(c => c.getName() === 'Sync Hub');
+
+        if (!syncHubCollection) {
+            throw new Error('Sync Hub collection not found');
+        }
+
+        const records = await syncHubCollection.getAllRecords();
+        let myRecord = records.find(r => r.text('plugin_id') === 'google-calendar-sync');
+
+        if (!myRecord) {
+            // Create record if it doesn't exist
+            const recordGuid = syncHubCollection.createRecord('Google Calendar');
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            const updatedRecords = await syncHubCollection.getAllRecords();
+            myRecord = updatedRecords.find(r => r.guid === recordGuid);
+
+            if (myRecord) {
+                const pluginIdProp = myRecord.prop('plugin_id');
+                if (pluginIdProp) pluginIdProp.set('google-calendar-sync');
+            }
+        }
+
+        if (!myRecord) {
+            throw new Error('Could not find or create Sync Hub record');
+        }
+
+        // Save config
+        const configProp = myRecord.prop('config');
+        if (configProp) {
+            configProp.set(JSON.stringify(config));
+        }
+
+        // Enable the plugin
+        const enabledProp = myRecord.prop('enabled');
+        if (enabledProp) {
+            enabledProp.set(true);
         }
     }
 
