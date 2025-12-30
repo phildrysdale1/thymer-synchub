@@ -8,19 +8,19 @@ A plugin architecture for syncing external data sources into [Thymer](https://th
                     THE LAUNDROMAT
 
     ┌─────────────────────────────────────────────┐
-    │                 SYNC HUB                     │
+    │                 SYNC HUB                    │
     │           (the orchestrator)                │
     │                                             │
-    │   ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐       │
-    │   │ GH  │  │ GL  │  │Jira │  │ ... │       │
-    │   └──┬──┘  └──┬──┘  └──┬──┘  └──┬──┘       │
-    │      │        │        │        │          │
-    │      └────────┴────────┴────────┘          │
+    │   ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐        │
+    │   │ GH  │  │ GL  │  │Jira │  │ ... │        │
+    │   └──┬──┘  └──┬──┘  └──┬──┘  └──┬──┘        │
+    │      │        │        │        │           │
+    │      └────────┴────────┴────────┘           │
     │                   │                         │
-    │         ┌────────┴────────┐                │
-    │         ▼        ▼        ▼                │
-    │      ISSUES  CAPTURES  EVENTS              │
-    │      (baskets of clean laundry)            │
+    │         ┌────────┴────────┐                 │
+    │         ▼        ▼        ▼                 │
+    │      ISSUES  CAPTURES  EVENTS               │
+    │      (baskets of clean laundry)             │
     └─────────────────────────────────────────────┘
 ```
 
