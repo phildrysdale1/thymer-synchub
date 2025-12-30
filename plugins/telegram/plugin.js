@@ -83,24 +83,22 @@ class Plugin extends AppPlugin {
             return { summary: 'Not configured', created: 0, updated: 0 };
         }
 
-        // Parse config
+        // Get bot token
+        const botToken = myRecord.text('token');
+        if (!botToken) {
+            log('No bot token. Add your Telegram bot token to the Token field.');
+            return { summary: 'Not configured - add bot token', created: 0, updated: 0 };
+        }
+
+        // Parse config for additional settings (like last_offset)
+        let config = {};
         const configText = myRecord.text('config');
-        if (!configText) {
-            log('No config found. Add {"bot_token": "YOUR_TOKEN"} to config field.');
-            return { summary: 'Not configured - add bot_token', created: 0, updated: 0 };
-        }
-
-        let config;
-        try {
-            config = JSON.parse(configText);
-        } catch (e) {
-            log('Invalid config JSON');
-            return { summary: 'Invalid config JSON', created: 0, updated: 0 };
-        }
-
-        if (!config.bot_token) {
-            log('No bot_token in config');
-            return { summary: 'Missing bot_token', created: 0, updated: 0 };
+        if (configText) {
+            try {
+                config = JSON.parse(configText);
+            } catch (e) {
+                // Ignore invalid JSON, use empty config
+            }
         }
 
         // Get last processed update offset
@@ -112,7 +110,7 @@ class Plugin extends AppPlugin {
         let updates;
         try {
             const response = await fetch(
-                `https://api.telegram.org/bot${config.bot_token}/getUpdates?offset=${lastOffset}&timeout=0`
+                `https://api.telegram.org/bot${botToken}/getUpdates?offset=${lastOffset}&timeout=0`
             );
             const result = await response.json();
 

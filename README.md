@@ -92,7 +92,7 @@ In the Sync Hub collection, each plugin auto-creates its record. Configure:
 | GitHub | `token`: Personal access token<br>`config`: `{"repos": ["owner/repo"]}` |
 | Readwise | `token`: Readwise access token |
 | Google Calendar | `config`: `{"refresh_token": "...", "token_endpoint": "..."}` (from OAuth helper) |
-| Telegram | `config`: `{"bot_token": "YOUR_BOT_TOKEN"}` |
+| Telegram | `token`: Bot token from @BotFather |
 
 ## Status Bar
 

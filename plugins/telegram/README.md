@@ -16,14 +16,7 @@ Send messages to your personal Telegram bot, and they appear in Thymer - automat
 1. Open Thymer
 2. Go to **Sync Hub** collection
 3. Find the **Telegram** record (or create one with `plugin_id` = `telegram-sync`)
-4. Paste this into the `config` field:
-
-```json
-{
-  "bot_token": "YOUR_BOT_TOKEN_HERE"
-}
-```
-
+4. Paste your bot token into the **Token** field
 5. Set `enabled` to `Yes`
 
 ### 3. Start Messaging!
@@ -59,22 +52,19 @@ Phone → Telegram Bot → [messages queue - stored 24h]
 
 No server needed! Telegram stores the messages, the plugin polls when you have Thymer open.
 
-## Config Options
+## Fields
 
-```json
-{
-  "bot_token": "YOUR_TOKEN",
-  "last_offset": 12345678
-}
-```
+| Field | Purpose |
+|-------|---------|
+| Token | Your bot token from BotFather (required) |
+| Config | Optional JSON: `{"last_offset": 12345}` (auto-managed) |
 
-- `bot_token` - Your bot token from BotFather (required)
-- `last_offset` - Auto-managed, tracks which messages have been processed
+The `last_offset` is automatically updated to track which messages have been processed.
 
 ## Troubleshooting
 
 ### "Not configured"
-Make sure the config field has valid JSON with `bot_token`.
+Make sure the Token field has your bot token from BotFather.
 
 ### Messages not appearing
 - Check the bot token is correct
