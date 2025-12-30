@@ -17,7 +17,7 @@ class Plugin extends AppPlugin {
         // Command palette: Manual sync
         this.syncCommand = this.ui.addCommandPaletteCommand({
             label: 'Telegram Sync',
-            icon: 'brand-telegram',
+            icon: 'plane',
             onSelected: () => this.triggerSync()
         });
 
@@ -54,7 +54,7 @@ class Plugin extends AppPlugin {
         await window.syncHub.register({
             id: 'telegram-sync',
             name: 'Telegram',
-            icon: 'ti-brand-telegram',
+            icon: 'ti-plane',
             defaultInterval: '1m',
             sync: async (ctx) => this.sync(ctx),
         });
