@@ -493,26 +493,13 @@ class Plugin extends CollectionPlugin {
             const journalCollection = collections.find(c => c.getName() === 'Journal');
             if (!journalCollection) return null;
 
-            // Get today's date in YYYY-MM-DD format
-            const today = new Date();
-            const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+            // Journal guids end with the date in YYYYMMDD format
+            const today = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // "20251231"
 
-            // Find record with matching date
             const records = await journalCollection.getAllRecords();
-            for (const record of records) {
-                const dateProp = record.prop('date');
-                if (dateProp) {
-                    const recordDate = dateProp.date();
-                    if (recordDate) {
-                        const recordDateStr = recordDate.toISOString().split('T')[0];
-                        if (recordDateStr === dateStr) {
-                            return record;
-                        }
-                    }
-                }
-            }
+            const todayRecord = records.find(r => r.guid.endsWith(today));
 
-            return null;
+            return todayRecord || null;
         } catch (e) {
             return null;
         }
