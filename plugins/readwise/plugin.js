@@ -141,6 +141,9 @@ class Plugin extends AppPlugin {
         const changes = [];
 
         for (const doc of documents) {
+            // Skip RSS feeds (too noisy, like Go version)
+            if (doc.category === 'rss') continue;
+
             const docHighlights = highlightsByDoc.get(doc.id) || [];
 
             // Skip documents without highlights
