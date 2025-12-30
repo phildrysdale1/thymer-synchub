@@ -1,0 +1,88 @@
+{
+    "ver": 1,
+    "name": "Captures",
+    "icon": "ti-highlight",
+    "home": false,
+    "page_field_ids": ["content", "source", "source_title", "captured_at"],
+    "item_name": "Capture",
+    "description": "Highlights, notes, and bookmarks from any source",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
+        {
+            "icon": "ti-id",
+            "id": "external_id",
+            "label": "External ID",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-align-left",
+            "id": "content",
+            "label": "Content",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-plug",
+            "id": "source",
+            "label": "Source",
+            "type": "choice",
+            "read_only": true,
+            "active": true,
+            "choices": [
+                {"id": "readwise", "label": "Readwise", "color": "3", "active": true},
+                {"id": "kindle", "label": "Kindle", "color": "4", "active": true},
+                {"id": "web", "label": "Web", "color": "9", "active": true},
+                {"id": "manual", "label": "Manual", "color": "1", "active": true}
+            ]
+        },
+        {
+            "icon": "ti-book",
+            "id": "source_title",
+            "label": "Source Title",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-user",
+            "id": "source_author",
+            "label": "Source Author",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-link",
+            "id": "source_url",
+            "label": "Source URL",
+            "type": "url",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-clock",
+            "id": "captured_at",
+            "label": "Captured",
+            "type": "datetime",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-tags",
+            "id": "tags",
+            "label": "Tags",
+            "type": "text",
+            "read_only": false,
+            "active": true
+        }
+    ],
+    "sidebar_record_sort_dir": "desc",
+    "sidebar_record_sort_field_id": "captured_at",
+    "managed": {"fields": false, "views": false, "sidebar": false},
+    "custom": {},
+    "views": []
+}

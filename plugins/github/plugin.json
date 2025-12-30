@@ -1,0 +1,21 @@
+{
+    "ver": 1,
+    "name": "GitHub Sync",
+    "icon": "ti-brand-github",
+    "item_name": "Note",
+    "description": "Syncs issues and PRs from GitHub into the Issues collection",
+    "show_sidebar_items": false,
+    "show_cmdpal_items": false,
+    "views": [],
+    "fields": [],
+    "page_field_ids": [],
+    "sidebar_record_sort_field_id": "updated_at",
+    "sidebar_record_sort_dir": "desc",
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
+    },
+    "custom": {},
+    "home": false
+}

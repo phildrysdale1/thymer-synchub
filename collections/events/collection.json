@@ -1,0 +1,88 @@
+{
+    "ver": 1,
+    "name": "Events",
+    "icon": "ti-calendar",
+    "home": false,
+    "page_field_ids": ["title", "source", "time_period", "location"],
+    "item_name": "Event",
+    "description": "Calendar events from any source",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
+        {
+            "icon": "ti-id",
+            "id": "external_id",
+            "label": "External ID",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-abc",
+            "id": "title",
+            "label": "Title",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-plug",
+            "id": "source",
+            "label": "Source",
+            "type": "choice",
+            "read_only": true,
+            "active": true,
+            "choices": [
+                {"id": "google", "label": "Google", "color": "3", "active": true},
+                {"id": "outlook", "label": "Outlook", "color": "4", "active": true},
+                {"id": "proton", "label": "Proton", "color": "12", "active": true},
+                {"id": "manual", "label": "Manual", "color": "1", "active": true}
+            ]
+        },
+        {
+            "icon": "ti-clock",
+            "id": "time_period",
+            "label": "Time",
+            "type": "datetime",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-map-pin",
+            "id": "location",
+            "label": "Location",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-users",
+            "id": "attendees",
+            "label": "Attendees",
+            "type": "text",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-link",
+            "id": "url",
+            "label": "URL",
+            "type": "url",
+            "read_only": true,
+            "active": true
+        },
+        {
+            "icon": "ti-calendar-check",
+            "id": "all_day",
+            "label": "All Day",
+            "type": "checkbox",
+            "read_only": true,
+            "active": true
+        }
+    ],
+    "sidebar_record_sort_dir": "asc",
+    "sidebar_record_sort_field_id": "time_period",
+    "managed": {"fields": false, "views": false, "sidebar": false},
+    "custom": {},
+    "views": []
+}
