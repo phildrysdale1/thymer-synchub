@@ -274,6 +274,14 @@ class Plugin extends AppPlugin {
     async handleWebUrl(url, data, timeStr, log, debug) {
         debug(`Web URL: ${url}`);
 
+        // Fetch and parse the page
+        let pageInfo = { title: url, description: '', author: '', content: '' };
+        try {
+            pageInfo = await this.fetchPageInfo(url, debug);
+        } catch (e) {
+            debug(`Failed to fetch page: ${e.message}`);
+        }
+
         // Find Captures collection (fallback to Inbox)
         const collections = await data.getAllCollections();
         let captures = collections.find(c => c.getName() === 'Captures');
@@ -285,15 +293,13 @@ class Plugin extends AppPlugin {
             // Fallback: add to journal
             const journal = await this.getTodayJournalRecord(data);
             if (journal) {
-                await this.appendOneLiner(journal, timeStr, `Link: ${url}`);
+                await this.appendOneLiner(journal, timeStr, `[${pageInfo.title}](${url})`);
             }
-            return { verb: 'captured', title: url, guid: journal?.guid, major: false };
+            return { verb: 'captured', title: pageInfo.title, guid: journal?.guid, major: false };
         }
 
-        // Create a capture record for the URL
-        // For now, just create with URL as title
-        // Future: fetch page, extract title, use readability
-        const recordGuid = captures.createRecord(url);
+        // Create a capture record with the page title
+        const recordGuid = captures.createRecord(pageInfo.title);
         if (!recordGuid) {
             log('Failed to create capture record');
             return null;
@@ -304,8 +310,26 @@ class Plugin extends AppPlugin {
         const record = records.find(r => r.guid === recordGuid);
 
         if (record) {
-            record.prop('url')?.set(url);
+            // Set all the metadata fields
+            record.prop('source_url')?.set(url);
             record.prop('source')?.setChoice('Web');
+            if (pageInfo.author) {
+                record.prop('source_author')?.set(pageInfo.author);
+            }
+
+            // Set captured_at
+            if (typeof DateTime !== 'undefined') {
+                const dt = new DateTime(new Date());
+                record.prop('captured_at')?.set(dt.value());
+            }
+
+            // Add description/content to the record body
+            if (pageInfo.description || pageInfo.content) {
+                const bodyContent = pageInfo.description || pageInfo.content;
+                if (window.syncHub?.insertMarkdown) {
+                    await window.syncHub.insertMarkdown(bodyContent, record, null);
+                }
+            }
         }
 
         // Also add reference in journal
@@ -316,10 +340,130 @@ class Plugin extends AppPlugin {
 
         return {
             verb: 'captured',
-            title: url,
+            title: pageInfo.title,
             guid: recordGuid,
             major: true
         };
+    }
+
+    /**
+     * Fetch a web page and extract title, description, author, and content
+     */
+    async fetchPageInfo(url, debug) {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; ThymerBot/1.0)',
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const html = await response.text();
+        debug(`Fetched ${html.length} bytes`);
+
+        // Extract metadata
+        const title = this.extractTitle(html) || url;
+        const description = this.extractDescription(html);
+        const author = this.extractAuthor(html);
+        const content = this.extractContent(html);
+
+        debug(`Title: ${title}`);
+        if (description) debug(`Description: ${description.slice(0, 100)}...`);
+
+        return { title, description, author, content };
+    }
+
+    extractTitle(html) {
+        // Try og:title first
+        const ogMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
+        if (ogMatch) return this.decodeHtmlEntities(ogMatch[1]);
+
+        // Try twitter:title
+        const twitterMatch = html.match(/<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["']/i);
+        if (twitterMatch) return this.decodeHtmlEntities(twitterMatch[1]);
+
+        // Fall back to <title>
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (titleMatch) return this.decodeHtmlEntities(titleMatch[1].trim());
+
+        return null;
+    }
+
+    extractDescription(html) {
+        // Try og:description first
+        const ogMatch = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i);
+        if (ogMatch) return this.decodeHtmlEntities(ogMatch[1]);
+
+        // Try twitter:description
+        const twitterMatch = html.match(/<meta[^>]*name=["']twitter:description["'][^>]*content=["']([^"']+)["']/i);
+        if (twitterMatch) return this.decodeHtmlEntities(twitterMatch[1]);
+
+        // Try meta description
+        const metaMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i);
+        if (metaMatch) return this.decodeHtmlEntities(metaMatch[1]);
+
+        return '';
+    }
+
+    extractAuthor(html) {
+        // Try article:author
+        const articleMatch = html.match(/<meta[^>]*property=["']article:author["'][^>]*content=["']([^"']+)["']/i);
+        if (articleMatch) return this.decodeHtmlEntities(articleMatch[1]);
+
+        // Try author meta
+        const authorMatch = html.match(/<meta[^>]*name=["']author["'][^>]*content=["']([^"']+)["']/i);
+        if (authorMatch) return this.decodeHtmlEntities(authorMatch[1]);
+
+        return '';
+    }
+
+    extractContent(html) {
+        // Simple extraction: try to get article or main content
+        // This is a basic implementation - full readability would be better
+
+        // Remove scripts and styles
+        let text = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+            .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+            .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+
+        // Try to find article or main content
+        const articleMatch = text.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+        if (articleMatch) {
+            text = articleMatch[1];
+        } else {
+            const mainMatch = text.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+            if (mainMatch) {
+                text = mainMatch[1];
+            }
+        }
+
+        // Strip remaining HTML tags
+        text = text.replace(/<[^>]+>/g, ' ');
+
+        // Normalize whitespace
+        text = text.replace(/\s+/g, ' ').trim();
+
+        // Limit length
+        if (text.length > 2000) {
+            text = text.slice(0, 2000) + '...';
+        }
+
+        return text;
+    }
+
+    decodeHtmlEntities(str) {
+        return str
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&nbsp;/g, ' ');
     }
 
     async handlePhoto(message, data, timeStr, log, debug) {
