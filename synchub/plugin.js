@@ -295,7 +295,7 @@ class Plugin extends CollectionPlugin {
 
             // Update status to idle
             record.prop('status')?.setChoice('idle');
-            record.prop('last_run')?.set(new Date());
+            this.setLastRun(record);
             record.prop('last_error')?.set(null);
 
             // Log each change with verb + record reference
@@ -329,7 +329,7 @@ class Plugin extends CollectionPlugin {
             const errorMsg = error.message || String(error);
 
             record.prop('status')?.setChoice('error');
-            record.prop('last_run')?.set(new Date());
+            this.setLastRun(record);
             record.prop('last_error')?.set(errorMsg);
 
             await this.appendLog(record.guid, `ERROR: ${errorMsg}`, 'error');
@@ -792,5 +792,24 @@ class Plugin extends CollectionPlugin {
             'kt': 'kotlin', 'md': 'markdown', 'html': 'xml', 'htm': 'xml'
         };
         return LANGUAGE_ALIASES[lower] || lower;
+    }
+
+    /**
+     * Set last_run datetime field using Thymer's DateTime class
+     */
+    setLastRun(record) {
+        const prop = record.prop('last_run');
+        if (!prop) return;
+
+        const now = new Date();
+
+        // Use DateTime class if available (Thymer global)
+        if (typeof DateTime !== 'undefined') {
+            const dt = new DateTime(now);
+            prop.set(dt.value());
+        } else {
+            // Fallback to plain Date
+            prop.set(now);
+        }
     }
 }
