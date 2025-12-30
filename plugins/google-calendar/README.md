@@ -8,7 +8,7 @@ Syncs events from Google Calendar into your Events collection.
 
 Visit the auth helper to connect your Google Calendar:
 
-**[Connect Google Calendar](https://thymer-auth.workers.dev/google?service=calendar)**
+**[Connect Google Calendar](https://thymerhelper.lifelog.my/google?service=calendar)**
 
 After approving access, you'll get a config JSON to copy.
 
@@ -66,7 +66,7 @@ The plugin can't find its config. Make sure:
 
 ### "Auth failed"
 The refresh token may have expired. Visit the auth helper to reconnect:
-[Connect Google Calendar](https://thymer-auth.workers.dev/google?service=calendar)
+[Connect Google Calendar](https://thymerhelper.lifelog.my/google?service=calendar)
 
 ### Events not appearing
 - Check the Events collection exists

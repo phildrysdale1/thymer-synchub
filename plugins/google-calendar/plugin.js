@@ -13,8 +13,8 @@
 
 class Plugin extends AppPlugin {
 
-    // Auth helper URL - change if self-hosting
-    static AUTH_URL = 'https://thymer-auth.workers.dev/google?service=calendar';
+    // Auth helper URL
+    static AUTH_URL = 'https://thymerhelper.lifelog.my/google?service=calendar';
 
     // =========================================================================
     // Lifecycle
