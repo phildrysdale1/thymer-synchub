@@ -11,6 +11,12 @@ git clone https://github.com/riclib/thymer-synchub.git
 cd thymer-synchub/plugins/_template
 ```
 
+For the official Thymer Plugin SDK and type definitions:
+
+```bash
+git clone https://github.com/thymerapp/thymer-plugin-sdk.git
+```
+
 ## Background Reading
 
 The Sync Hub was built iteratively, documented in the "Becoming Lifelog" series:
