@@ -22,25 +22,73 @@ Create a record in your Sync Hub collection:
 | Token | Your GitHub personal access token |
 | Config | See below |
 
-### Config JSON
+## Config JSON
+
+### Projects Mapping (Recommended)
+
+Map repositories to project labels for grouping:
 
 ```json
 {
-    "repos": ["owner/repo1", "owner/repo2"],
-    "query": "is:open assignee:@me"
+  "projects": {
+    "owner/repo": "Project Label",
+    "owner/another-repo": "Project Label"
+  }
 }
 ```
 
-- **repos**: List of repositories to sync (format: `owner/repo`)
-- **query**: GitHub search query (optional, for advanced filtering)
+**Example:**
+```json
+{
+  "projects": {
+    "riclib/thymer-synchub": "Thymer Plugins",
+    "riclib/thymer-auth": "Thymer Plugins",
+    "riclib/v4": "V4"
+  }
+}
+```
 
-You can use either `repos`, `query`, or both.
+This syncs issues from all three repos. Issues from `thymer-synchub` and `thymer-auth` are grouped under "Thymer Plugins" project in the "By Project" board view.
+
+### Simple Repos List
+
+If you don't need project grouping:
+
+```json
+{
+  "repos": ["owner/repo1", "owner/repo2"]
+}
+```
+
+### Search Query
+
+Use GitHub search syntax for advanced filtering:
+
+```json
+{
+  "query": "is:open assignee:@me"
+}
+```
+
+You can combine with projects:
+
+```json
+{
+  "projects": {"myorg/myrepo": "Work"},
+  "query": "org:myorg is:open"
+}
+```
 
 ### Example Configs
 
-Sync specific repos:
+Sync specific repos with project grouping:
 ```json
-{"repos": ["facebook/react", "vercel/next.js"]}
+{
+  "projects": {
+    "facebook/react": "React Ecosystem",
+    "vercel/next.js": "React Ecosystem"
+  }
+}
 ```
 
 Sync issues assigned to you:
@@ -55,19 +103,33 @@ Sync your organization's issues:
 
 ## Field Mappings
 
-| Issues Field | GitHub Field |
-|-------------|--------------|
-| external_id | `github_{id}` |
-| title | title |
-| source | "GitHub" |
-| repo | `{owner}/{repo}` |
-| number | number |
-| type | "Issue" or "PR" |
-| state | "Open" or "Closed" |
-| author | user.login |
-| assignee | assignee.login |
-| url | html_url |
-| body | body (as markdown content) |
+| Issues Field | GitHub Field | Notes |
+|--------------|--------------|-------|
+| `external_id` | `github_{id}` | For deduplication |
+| `title` | title | |
+| `source` | "GitHub" | |
+| `repo` | `owner/repo` | Actual repository |
+| `project` | From config mapping | For grouping repos |
+| `number` | number | |
+| `type` | "Issue" or "PR" | |
+| `state` | "Open" or "Closed" | |
+| `author` | user.login | |
+| `assignee` | assignee.login | |
+| `url` | html_url | |
+| `created_at` | created_at | |
+| `updated_at` | updated_at | |
+| (content) | body | Inserted as markdown |
+
+## Sync Behavior
+
+- **Incremental sync**: Only fetches issues updated since last sync
+- **Full sync**: Re-fetches all issues, updates project field on existing issues
+- **Deduplication**: Uses `external_id` to match existing records
+
+## Command Palette
+
+- **GitHub Full Sync** - Ignores last_run, re-syncs everything
+- **GitHub Incremental Sync** - Only syncs changes since last run
 
 ## Manual Sync
 
@@ -76,3 +138,7 @@ Trigger a sync from the browser console:
 ```javascript
 window.syncHub.requestSync('github-sync')
 ```
+
+## Rate Limits
+
+GitHub API allows 5,000 requests/hour with authentication. Each repo sync uses 1 request per 100 issues.
