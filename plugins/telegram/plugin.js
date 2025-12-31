@@ -608,15 +608,29 @@ class Plugin extends AppPlugin {
                 return null;
             }
 
-            // Journal guids end with the date in YYYYMMDD format
-            const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-
             const records = await journalCollection.getAllRecords();
-            const journal = records.find(r => r.guid.endsWith(today));
-            if (!journal) {
-                console.log(`[Telegram] No journal record for today (${today})`);
+
+            // Journal guids end with the date in YYYYMMDD format
+            // Thymer uses previous day's journal until ~3am, so try today first, then yesterday
+            const now = new Date();
+            const today = now.toISOString().slice(0, 10).replace(/-/g, '');
+
+            let journal = records.find(r => r.guid.endsWith(today));
+            if (journal) return journal;
+
+            // Fallback: try yesterday (for late-night work sessions)
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().slice(0, 10).replace(/-/g, '');
+
+            journal = records.find(r => r.guid.endsWith(yesterdayStr));
+            if (journal) {
+                console.log(`[Telegram] Using yesterday's journal (${yesterdayStr})`);
+                return journal;
             }
-            return journal || null;
+
+            console.log(`[Telegram] No journal record for today (${today}) or yesterday (${yesterdayStr})`);
+            return null;
         } catch (e) {
             console.error('[Telegram] Error getting journal:', e);
             return null;
