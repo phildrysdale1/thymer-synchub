@@ -298,6 +298,15 @@ class Plugin extends AppPlugin {
             return { verb: 'captured', title: pageInfo.title, guid: journal?.guid, major: false };
         }
 
+        // Check if we already have this URL captured (deduplication)
+        const externalId = `telegram_url_${url}`;
+        const existingRecords = await captures.getAllRecords();
+        const existing = existingRecords.find(r => r.text('external_id') === externalId);
+        if (existing) {
+            debug(`Already captured: ${url}`);
+            return { verb: 'skipped', title: pageInfo.title, guid: existing.guid, major: false };
+        }
+
         // Create a capture record with the page title
         const recordGuid = captures.createRecord(pageInfo.title);
         if (!recordGuid) {
@@ -311,6 +320,7 @@ class Plugin extends AppPlugin {
 
         if (record) {
             // Set all the metadata fields
+            record.prop('external_id')?.set(externalId);
             record.prop('source_url')?.set(url);
             record.prop('source')?.setChoice('Web');
             if (pageInfo.author) {
@@ -708,6 +718,14 @@ class Plugin extends AppPlugin {
             const titleMatch = content.match(/^#\s+(.+)$/m);
             const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
 
+            // Create external_id from content hash for deduplication
+            const externalId = `telegram_md_${this.simpleHash(content)}`;
+            const existingRecords = await captures.getAllRecords();
+            const existing = existingRecords.find(r => r.text('external_id') === externalId);
+            if (existing) {
+                return { guid: existing.guid, title, skipped: true };
+            }
+
             // Create the record
             const recordGuid = captures.createRecord(title);
             if (!recordGuid) {
@@ -720,8 +738,15 @@ class Plugin extends AppPlugin {
             const record = records.find(r => r.guid === recordGuid);
 
             if (record) {
-                // Set source
+                // Set external_id and source
+                record.prop('external_id')?.set(externalId);
                 record.prop('source')?.setChoice('Telegram');
+
+                // Set captured_at
+                if (typeof DateTime !== 'undefined') {
+                    const dt = new DateTime(new Date());
+                    record.prop('captured_at')?.set(dt.value());
+                }
 
                 // Insert body content (remove title heading)
                 const bodyContent = content.replace(/^#\s+.+\n?/, '').trim();
@@ -735,5 +760,18 @@ class Plugin extends AppPlugin {
             log(`Error creating capture: ${e.message}`);
             return null;
         }
+    }
+
+    /**
+     * Simple hash function for deduplication
+     */
+    simpleHash(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return Math.abs(hash).toString(36);
     }
 }
