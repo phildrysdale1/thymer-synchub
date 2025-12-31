@@ -2,6 +2,18 @@
 
 You are helping build a Thymer Sync Hub plugin. This document contains the patterns and gotchas learned from building the existing plugins.
 
+## Background Reading
+
+The Sync Hub was built iteratively, documented in the "Becoming Lifelog" series:
+
+- [The Ouroboros Update](https://lifelog.my/riclib/posts/the-ouroboros-update) - The origin story
+- [Collections All The Way Down](https://lifelog.my/riclib/posts/collections-all-the-way-down-the-native-dividend) - Why collections matter
+- [The Laundromat](https://lifelog.my/riclib/posts/the-laundromat) - The architecture metaphor
+- [The First Wash](https://lifelog.my/riclib/posts/the-first-wash) - GitHub sync implementation
+- [The Second Load](https://lifelog.my/riclib/posts/the-second-load) - Readwise and rate limits
+- [The OAuth Tango](https://lifelog.my/riclib/posts/the-oauth-tango) - Google Calendar OAuth flow
+- [The Checkbox That Wanted More](https://lifelog.my/riclib/posts/the-checkbox-that-wanted-more) - Status bar, Telegram, and late-night fixes
+
 ## Plugin Structure
 
 Each plugin is a folder with:
