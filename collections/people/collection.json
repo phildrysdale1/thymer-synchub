@@ -3,7 +3,16 @@
   "name": "People",
   "icon": "ti-user",
   "home": false,
-  "page_field_ids": [],
+  "page_field_ids": [
+    "email",
+    "phone",
+    "organization",
+    "job_title",
+    "notes",
+    "anniversary",
+    "keep_in_touch",
+    "last_contact"
+  ],
   "item_name": "Person",
   "description": "Contacts and relationships",
   "show_sidebar_items": true,
@@ -15,7 +24,7 @@
       "label": "External ID",
       "type": "text",
       "read_only": true,
-      "active": false
+      "active": true
     },
     {
       "icon": "ti-anchor",
@@ -147,7 +156,7 @@
       "label": "Created",
       "type": "datetime",
       "read_only": true,
-      "active": false
+      "active": true
     },
     {
       "icon": "ti-clock-edit",
@@ -155,7 +164,7 @@
       "label": "Updated",
       "type": "datetime",
       "read_only": true,
-      "active": false
+      "active": true
     },
     {
       "icon": "ti-abc",
@@ -191,7 +200,14 @@
       "icon": "",
       "label": "All People",
       "description": "",
-      "field_ids": ["title", "email", "phone", "organization", "keep_in_touch", "last_contact"],
+      "field_ids": [
+        "title",
+        "email",
+        "phone",
+        "organization",
+        "keep_in_touch",
+        "last_contact"
+      ],
       "type": "table",
       "read_only": false,
       "group_by_field_id": null,
