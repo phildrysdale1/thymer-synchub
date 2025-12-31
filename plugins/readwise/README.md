@@ -1,6 +1,6 @@
 # Readwise Sync Plugin
 
-Syncs documents and highlights from Readwise Reader into the Readwise collection.
+Syncs documents and highlights from Readwise Reader into the Captures collection.
 
 ## Setup
 
@@ -11,60 +11,59 @@ Syncs documents and highlights from Readwise Reader into the Readwise collection
 
 ### 2. Configure in Sync Hub
 
-Create a record in your Sync Hub collection:
-
 | Field | Value |
 |-------|-------|
 | Plugin ID | `readwise-sync` |
 | Enabled | Yes |
-| Interval | 1 hour (or your preference) |
+| Interval | 1 hour (recommended) |
 | Token | Your Readwise access token |
-
-## How It Works
-
-- Fetches all documents (books, articles, podcasts, etc.) from Readwise Reader
-- Groups highlights by their parent document
-- Creates one record per document in the Readwise collection
-- Inserts highlights as markdown in the document body
-- Supports incremental sync using `updatedAfter` parameter
 
 ## Field Mappings
 
-| Readwise Field | Thymer Field |
-|----------------|--------------|
-| id | external_id (prefixed with `readwise_`) |
-| title | title |
-| author | author |
-| category | category (Article, Book, Podcast, etc.) |
-| source_url | source_url |
-| url | url (Readwise Reader URL) |
-| highlights count | highlight_count |
+| Captures Field | Readwise Source | Notes |
+|----------------|-----------------|-------|
+| `title` | title | Document title |
+| `external_id` | `readwise_{id}` | For deduplication |
+| `source` | "Readwise" | |
+| `author` | author | |
+| `category` | category | Article, Book, Podcast, etc. |
+| `source_url` | source_url | Original URL |
+| `url` | url | Readwise Reader URL |
+| `highlight_count` | highlights.length | Number of highlights |
+| (content) | highlights + summary | As markdown |
 
-## Document Body
+## Document Content
 
-Each document record contains:
+Each synced document contains:
 
 ```markdown
 ## Summary
 
-[LLM-generated summary if available]
+[AI-generated summary if available]
 
 ## Highlights
 
-> First highlight text here
+> First highlight text
 
-**Note:** Your annotation if any
+**Note:** Your annotation
 
-> Second highlight text here
+> Second highlight text
 ```
+
+## Sync Behavior
+
+- **Incremental sync**: Uses `updatedAfter` to fetch only changes
+- **Full sync**: Re-fetches all documents
+- **Deduplication**: Uses `external_id` to match existing records
+- **Grouping**: Highlights are grouped by parent document
+
+## Command Palette
+
+- **Readwise Full Sync** - Fetch all documents
+- **Readwise Incremental Sync** - Only changes since last sync
 
 ## Manual Sync
 
-Use command palette (Cmd+K):
-- **Readwise Full Sync** - fetches all documents
-- **Readwise Incremental Sync** - fetches only changes since last sync
-
-Or via console:
 ```javascript
 window.syncHub.requestSync('readwise-sync')
 ```
@@ -72,3 +71,11 @@ window.syncHub.requestSync('readwise-sync')
 ## Rate Limiting
 
 The plugin automatically handles Readwise's rate limiting (429 responses) by waiting and retrying.
+
+## API Details
+
+**Endpoints:**
+- `GET /api/v3/list/` - Fetch documents
+- `GET /api/v3/highlights/` - Fetch highlights
+
+**Pagination:** Handles `nextPageCursor` automatically.

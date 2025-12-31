@@ -1,4 +1,4 @@
-# Telegram Sync
+# Telegram Sync Plugin
 
 Send messages to your personal Telegram bot, and they appear in Thymer - automatically routed to the right place.
 
@@ -13,32 +13,49 @@ Send messages to your personal Telegram bot, and they appear in Thymer - automat
 
 ### 2. Configure in Sync Hub
 
-1. Open Thymer
-2. Go to **Sync Hub** collection
-3. Find the **Telegram** record (or create one with `plugin_id` = `telegram-sync`)
-4. Paste your bot token into the **Token** field
-5. Set `enabled` to `Yes`
-
-### 3. Start Messaging!
-
-Send messages to your bot on Telegram. They'll sync to Thymer based on the content type.
+| Field | Value |
+|-------|-------|
+| Plugin ID | `telegram-sync` |
+| Enabled | Yes |
+| Interval | 1 minute (default) |
+| Token | Your bot token from BotFather |
 
 ## Smart Routing
 
-| You Send | It Goes To |
-|----------|------------|
+Messages are automatically routed based on content:
+
+| You Send | Destination |
+|----------|-------------|
 | `Quick thought` | Journal: **01:23** Quick thought |
-| `First line`<br>`Second line`<br>`Third line` | Journal: **01:23** First line (with indented children) |
-| `# Meeting Notes`<br>`## Attendees`<br>`- Alice` | Captures collection (with ref in Journal) |
-| `https://article.com/good-read` | Captures collection (URL stored) |
+| Multi-line text | Journal with indented children |
+| `# Markdown heading` | Captures collection (with Journal ref) |
+| `https://article.com` | Captures collection (URL stored) |
 | `github.com/user/repo/issues/42` | Journal (future: Issues collection) |
 | Photo + caption | Journal: **01:23** [Photo] caption |
 
-## Sync Interval
+### Multi-line Messages
 
-Default: Every 1 minute
+```
+First line
+Second line
+Third line
+```
 
-Messages are stored by Telegram for 24 hours, so they won't be lost if Thymer isn't open.
+Becomes a Journal entry with children:
+- **01:23** First line
+  - Second line
+  - Third line
+
+### Markdown Documents
+
+Messages starting with `#` are saved to Captures:
+
+```
+# Meeting Notes
+## Attendees
+- Alice
+- Bob
+```
 
 ## How It Works
 
@@ -47,32 +64,39 @@ Phone → Telegram Bot → [messages queue - stored 24h]
                               ↓
                     Sync Hub polls getUpdates
                               ↓
-                    Smart routing → Journal / Captures / Issues / Calendar
+                    Smart routing → Journal / Captures / Issues
 ```
 
-No server needed! Telegram stores the messages, the plugin polls when you have Thymer open.
+No server needed! Telegram stores messages for 24 hours. The plugin polls when Thymer is open.
 
-## Fields
+## Configuration
 
-| Field | Purpose |
-|-------|---------|
-| Token | Your bot token from BotFather (required) |
-| Config | Optional JSON: `{"last_offset": 12345}` (auto-managed) |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `token` | Yes | Bot token from BotFather |
+| `config` | Auto | `{"last_offset": 12345}` - tracks processed messages |
 
-The `last_offset` is automatically updated to track which messages have been processed.
+The `last_offset` is automatically updated after each sync.
+
+## Command Palette
+
+- **Telegram Sync** - Poll for new messages
 
 ## Troubleshooting
 
 ### "Not configured"
+
 Make sure the Token field has your bot token from BotFather.
 
 ### Messages not appearing
+
 - Check the bot token is correct
 - Try sending a test message to your bot
 - Check Sync Hub logs for errors
 
 ### Duplicate messages
-The `last_offset` tracks processed messages. If it gets corrupted, you might see duplicates. Reset by removing `last_offset` from config.
+
+The `last_offset` tracks processed messages. If corrupted, you might see duplicates. Fix by removing `last_offset` from config.
 
 ## Future Features
 

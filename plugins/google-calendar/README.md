@@ -1,85 +1,98 @@
-# Google Calendar Sync
+# Google Calendar Sync Plugin
 
-Syncs events from Google Calendar into your Calendar collection with proper time range support.
+Syncs events from Google Calendar into the Calendar collection.
 
 ## Setup
 
-### 1. Connect Your Google Account
+### 1. Connect via Command Palette
 
-Visit the auth helper to connect your Google Calendar:
+The easiest way to connect:
 
-**[Connect Google Calendar](https://thymerhelper.lifelog.my/google?service=calendar)**
+1. Open Command Palette (Cmd+K)
+2. Run "Connect Google Calendar"
+3. Complete OAuth in popup window
+4. Token is saved automatically
 
-After approving access, you'll get a config JSON to copy.
+This uses the shared auth endpoint at `thymerhelper.lifelog.my`.
 
-### 2. Configure in Sync Hub
+### Alternative: Custom Auth Endpoint
 
-1. Open Thymer
-2. Go to **Sync Hub** collection
-3. Find the **Google Calendar** record
-4. Paste the config JSON into the `config` field
-5. Set `enabled` to true
+If you need your own OAuth endpoint:
 
-### 3. Sync!
+1. Deploy [thymer-auth](https://github.com/riclib/thymer-auth)
+2. Set config: `{"auth_url": "https://your-endpoint/google?service=calendar"}`
+3. Run "Connect Google Calendar"
 
-The plugin will sync automatically based on the interval (default: 15 minutes).
+## Configuration
 
-You can also trigger a manual sync from the command palette:
-- `Google Calendar Sync` - Incremental sync
-- `Google Calendar Full Sync` - Full sync (past 30 days, future 90 days)
+| Field | Required | Description |
+|-------|----------|-------------|
+| `config` | Optional | `{"auth_url": "..."}` for custom endpoint |
+| `token` | Auto | Set by OAuth flow: `{"refresh_token": "...", "token_endpoint": "..."}` |
 
-## What Gets Synced
+## Field Mappings
 
-- Event title
-- Time period with full range support (start + end as DateTime range)
-- All-day events (displayed without time, multi-day as range)
-- Event status (Confirmed/Tentative)
-- Location
-- Attendees (first 5)
-- Google Meet link (from conferenceData)
-- Event URL
-- Event description (as document content)
+| Calendar Field | Google Calendar Source | Notes |
+|----------------|------------------------|-------|
+| `title` | summary | Event title |
+| `external_id` | `gcal_{id}` | For deduplication |
+| `source` | "Google Calendar" | |
+| `period` | start/end | DateTime range |
+| `calendar` | calendarId | Primary, Work, etc. |
+| `status` | status | Confirmed/Tentative |
+| `location` | location | |
+| `attendees` | attendees[0..4] | First 5 attendees |
+| `meet_link` | conferenceData | Google Meet URL |
+| `url` | htmlLink | Link to event |
+| `created_at` | created | |
+| `updated_at` | updated | |
+| (content) | description | As markdown |
+
+### All-Day Events
+
+All-day events are synced with date-only values (no time). Multi-day events show as a date range.
+
+## Sync Behavior
+
+| Mode | Past | Future |
+|------|------|--------|
+| Incremental | 7 days | 30 days |
+| Full sync | 30 days | 90 days |
+
+- **Recurring events**: Expanded into individual instances
+- **Deduplication**: Uses `external_id` to match existing records
+- **Cancellations**: Cancelled events are skipped
+
+## Command Palette
+
+- **Connect Google Calendar** - Start OAuth flow
+- **Google Calendar Full Sync** - Past 30 days + future 90 days
+- **Google Calendar Sync** - Incremental sync
 
 ## Calendar Collection Views
 
 - **Calendar** - Month/week calendar view
-- **Upcoming** - Table of events with prep tracking
-- **By Calendar** - Board grouped by calendar (Primary/Work/Personal)
-- **By Source** - Board grouped by sync source (Google/Outlook/etc)
+- **Upcoming** - Table with prep tracking
+- **By Calendar** - Board grouped by calendar
+- **By Source** - Board grouped by sync source
 - **Review** - Track meeting energy and outcomes
-
-## Sync Window
-
-- **Incremental sync**: Past 7 days + future 30 days
-- **Full sync**: Past 30 days + future 90 days
-
-Recurring events are expanded into individual instances.
 
 ## Privacy
 
 Your calendar data flows directly from Google to your browser. The auth helper only handles OAuth token refresh - it never sees your calendar data.
 
-## Config Format
-
-```json
-{
-  "refresh_token": "your-refresh-token",
-  "token_endpoint": "https://thymer-auth.workers.dev/refresh"
-}
-```
-
 ## Troubleshooting
 
 ### "Not configured"
-The plugin can't find its config. Make sure:
-- The Sync Hub record has `plugin_id` set to `google-calendar-sync`
-- The `config` field contains valid JSON with `refresh_token` and `token_endpoint`
+
+Make sure the plugin record exists in Sync Hub with `plugin_id` = `google-calendar-sync`.
 
 ### "Auth failed"
-The refresh token may have expired. Visit the auth helper to reconnect:
-[Connect Google Calendar](https://thymerhelper.lifelog.my/google?service=calendar)
+
+Token may have expired. Run "Connect Google Calendar" to reconnect.
 
 ### Events not appearing
+
 - Check the Calendar collection exists
-- Check the sync is actually running (look for journal entries)
-- Try a Full Sync from the command palette
+- Check sync is running (look for journal entries)
+- Try a Full Sync from Command Palette
