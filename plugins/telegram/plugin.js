@@ -50,7 +50,6 @@ class Plugin extends AppPlugin {
     }
 
     async registerWithSyncHub() {
-        console.log('[Telegram] Registering with Sync Hub...');
         await window.syncHub.register({
             id: 'telegram-sync',
             name: 'Telegram',
@@ -58,7 +57,6 @@ class Plugin extends AppPlugin {
             defaultInterval: '1m',
             sync: async (ctx) => this.sync(ctx),
         });
-        console.log('[Telegram] Registered successfully');
     }
 
     // =========================================================================
@@ -344,10 +342,8 @@ class Plugin extends AppPlugin {
 
         // Also add reference in journal
         const journal = await this.getTodayJournalRecord(data);
-        debug(`Journal record: ${journal ? journal.guid : 'not found'}`);
         if (journal) {
             await this.addRefToJournal(journal, timeStr, 'captured', recordGuid);
-            debug('Added ref to journal');
         }
 
         return {
@@ -603,10 +599,7 @@ class Plugin extends AppPlugin {
         try {
             const collections = await data.getAllCollections();
             const journalCollection = collections.find(c => c.getName() === 'Journal');
-            if (!journalCollection) {
-                console.log('[Telegram] Journal collection not found');
-                return null;
-            }
+            if (!journalCollection) return null;
 
             const records = await journalCollection.getAllRecords();
 
@@ -623,16 +616,8 @@ class Plugin extends AppPlugin {
             yesterday.setDate(yesterday.getDate() - 1);
             const yesterdayStr = yesterday.toISOString().slice(0, 10).replace(/-/g, '');
 
-            journal = records.find(r => r.guid.endsWith(yesterdayStr));
-            if (journal) {
-                console.log(`[Telegram] Using yesterday's journal (${yesterdayStr})`);
-                return journal;
-            }
-
-            console.log(`[Telegram] No journal record for today (${today}) or yesterday (${yesterdayStr})`);
-            return null;
+            return records.find(r => r.guid.endsWith(yesterdayStr)) || null;
         } catch (e) {
-            console.error('[Telegram] Error getting journal:', e);
             return null;
         }
     }

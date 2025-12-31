@@ -135,13 +135,40 @@ Each plugin record in Sync Hub has:
 
 ## Creating New Plugins
 
-See [CREATING_PLUGINS.md](CREATING_PLUGINS.md) for a guide.
+### Quick Start
 
-Key pattern:
+1. Copy `plugins/_template/` to `plugins/my-source/`
+2. Replace placeholders in `plugin.js`:
+   - `PLUGIN_ID` → `my-source-sync`
+   - `PLUGIN_NAME` → `My Source`
+   - `PLUGIN_ICON` → Tabler icon name (e.g., `brand-slack`)
+   - `TARGET_COLLECTION` → Target collection name
+3. Update `plugin.json` with name, icon, description
+4. Implement `fetchFromSource()` and `mapItemToRecord()`
+
+### Using Claude Code
+
+The template includes `CLAUDE.md` with all patterns and gotchas for AI-assisted development:
+
+```bash
+# In your plugin folder
+cat plugins/_template/CLAUDE.md
+```
+
+This teaches Claude Code about:
+- Registration with `synchub-ready` event
+- `log()` vs `debug()` usage
+- Deduplication with `external_id`
+- DateTime and Choice field handling
+- Journal access with late-night fallback
+- CORS workarounds for web fetching
+
+### Key Pattern
+
 ```javascript
 class Plugin extends AppPlugin {
     async onLoad() {
-        // Listen for Sync Hub ready
+        // Listen for Sync Hub ready (NOT polling!)
         window.addEventListener('synchub-ready', () => this.register());
         if (window.syncHub) this.register();
     }
@@ -155,12 +182,29 @@ class Plugin extends AppPlugin {
     }
 
     async sync({ data, log, debug }) {
-        // Fetch from source
-        // Create/update records
-        // Return { summary, created, updated, changes }
+        // debug() for routine messages (silent at Info level)
+        // log() only for errors
+        debug('Fetching...');
+
+        // Fetch from source, create/update records
+        // Return changes array for journal logging
+        return {
+            summary: '3 new items',
+            created: 3,
+            updated: 0,
+            changes: [
+                { verb: 'created', title: null, guid: recordGuid, major: true }
+            ]
+        };
     }
 }
 ```
+
+### Documentation
+
+- [Template CLAUDE.md](plugins/_template/CLAUDE.md) - AI-friendly patterns guide
+- [CREATING_PLUGINS.md](CREATING_PLUGINS.md) - Detailed walkthrough
+- [SDK Notes](docs/sdk-notes.md) - Gotchas and workarounds
 
 ## Documentation
 

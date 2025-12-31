@@ -53,7 +53,6 @@ class Plugin extends AppPlugin {
     }
 
     async registerWithSyncHub() {
-        console.log('[PLUGIN_NAME] Registering with Sync Hub...');
         await window.syncHub.register({
             id: 'PLUGIN_ID',
             name: 'PLUGIN_NAME',
@@ -61,7 +60,6 @@ class Plugin extends AppPlugin {
             defaultInterval: '5m',
             sync: async (ctx) => this.sync(ctx),
         });
-        console.log('[PLUGIN_NAME] Registered successfully');
     }
 
     // =========================================================================

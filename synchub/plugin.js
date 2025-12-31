@@ -919,7 +919,6 @@ class Plugin extends CollectionPlugin {
 
         try {
             const records = await this.myCollection?.getAllRecords() || [];
-            console.log(`[SyncHub] updateStatusBar: ${records.length} records, syncing=${this.currentlySyncing}`);
 
             // Check if currently syncing
             if (this.currentlySyncing) {
@@ -1012,11 +1011,9 @@ class Plugin extends CollectionPlugin {
      * Sync all enabled plugins
      */
     async syncAll() {
-        console.log('[SyncHub] syncAll triggered');
         try {
             const records = await this.myCollection?.getAllRecords() || [];
             const enabledRecords = records.filter(r => r.prop('enabled')?.choice() === 'yes');
-            console.log(`[SyncHub] Found ${enabledRecords.length} enabled plugins`);
 
             if (enabledRecords.length === 0) {
                 this.ui.addToaster({
