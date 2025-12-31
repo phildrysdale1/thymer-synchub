@@ -79,6 +79,29 @@
             "type": "text"
         },
         {
+            "icon": "ti-briefcase",
+            "id": "project",
+            "label": "Project",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "thymer_plugins",
+                    "label": "Thymer Plugins",
+                    "color": "9",
+                    "active": true
+                },
+                {
+                    "id": "v4",
+                    "label": "V4",
+                    "color": "4",
+                    "active": true
+                }
+            ]
+        },
+        {
             "icon": "ti-hash",
             "id": "number",
             "label": "Number",
@@ -262,6 +285,26 @@
             "opts": {}
         },
         {
+            "id": "VISSUES004",
+            "shown": true,
+            "icon": "",
+            "label": "By Project",
+            "description": "",
+            "field_ids": [
+                "title",
+                "repo",
+                "number",
+                "state",
+                "type"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "project",
+            "sort_dir": "desc",
+            "sort_field_id": "updated_at",
+            "opts": {}
+        },
+        {
             "id": "VISSUES003",
             "shown": true,
             "icon": "",
@@ -270,6 +313,7 @@
             "field_ids": [
                 "title",
                 "source",
+                "project",
                 "repo",
                 "number",
                 "type",

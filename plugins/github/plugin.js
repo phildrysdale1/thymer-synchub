@@ -105,7 +105,7 @@ class Plugin extends AppPlugin {
             return { summary: 'No token', created: 0, updated: 0, changes: [] };
         }
 
-        // Parse config (repos, query)
+        // Parse config (projects mapping, query)
         let config = {};
         try {
             config = configJson ? JSON.parse(configJson) : {};
@@ -113,7 +113,11 @@ class Plugin extends AppPlugin {
             log('Invalid config JSON, using defaults');
         }
 
-        const repos = config.repos || [];
+        // Support both old format (repos array) and new format (projects mapping)
+        const projectsMapping = config.projects || {};
+        const repos = Object.keys(projectsMapping).length > 0
+            ? Object.keys(projectsMapping)
+            : (config.repos || []);
         const query = config.query || '';
 
         // Format last_run for GitHub API (ISO 8601)
@@ -147,7 +151,7 @@ class Plugin extends AppPlugin {
         // Sync from search query
         if (query) {
             debug(`Searching: ${query}`);
-            const result = await this.syncFromSearch(token, query, issuesCollection, data, { log, debug, since });
+            const result = await this.syncFromSearch(token, query, issuesCollection, data, { log, debug, since, projectsMapping });
             totalCreated += result.created;
             totalUpdated += result.updated;
             allChanges = allChanges.concat(result.changes || []);
@@ -156,7 +160,7 @@ class Plugin extends AppPlugin {
         // Sync from specific repos
         for (const repo of repos) {
             debug(`Fetching: ${repo}`);
-            const result = await this.syncFromRepo(token, repo, issuesCollection, data, { log, debug, since });
+            const result = await this.syncFromRepo(token, repo, issuesCollection, data, { log, debug, since, projectsMapping });
             totalCreated += result.created;
             totalUpdated += result.updated;
             allChanges = allChanges.concat(result.changes || []);
@@ -178,7 +182,7 @@ class Plugin extends AppPlugin {
     // GitHub API
     // =========================================================================
 
-    async syncFromSearch(token, query, issuesCollection, data, { log, debug, since }) {
+    async syncFromSearch(token, query, issuesCollection, data, { log, debug, since, projectsMapping }) {
         // GitHub search API uses updated:>=YYYY-MM-DD for incremental sync
         let effectiveQuery = query;
         if (since) {
@@ -200,14 +204,14 @@ class Plugin extends AppPlugin {
             }
 
             const result = await response.json();
-            return await this.processIssues(result.items || [], issuesCollection, data, { log, debug });
+            return await this.processIssues(result.items || [], issuesCollection, data, { log, debug, projectsMapping });
         } catch (error) {
             log(`Search failed: ${error.message}`);
             return { created: 0, updated: 0 };
         }
     }
 
-    async syncFromRepo(token, repo, issuesCollection, data, { log, debug, since }) {
+    async syncFromRepo(token, repo, issuesCollection, data, { log, debug, since, projectsMapping }) {
         // GitHub API supports since parameter for incremental sync
         let url = `https://api.github.com/repos/${repo}/issues?state=all&per_page=100`;
         if (since) {
@@ -227,14 +231,14 @@ class Plugin extends AppPlugin {
             }
 
             const issues = await response.json();
-            return await this.processIssues(issues, issuesCollection, data, { log, debug });
+            return await this.processIssues(issues, issuesCollection, data, { log, debug, projectsMapping });
         } catch (error) {
             log(`Repo ${repo} failed: ${error.message}`);
             return { created: 0, updated: 0 };
         }
     }
 
-    async processIssues(issues, issuesCollection, data, { log, debug }) {
+    async processIssues(issues, issuesCollection, data, { log, debug, projectsMapping = {} }) {
         let created = 0;
         let updated = 0;
         const changes = [];
@@ -250,6 +254,9 @@ class Plugin extends AppPlugin {
             const repoIndex = urlParts.indexOf('github.com') + 1;
             const repo = `${urlParts[repoIndex]}/${urlParts[repoIndex + 1]}`;
 
+            // Look up project from mapping (try full path, then just repo name)
+            const project = projectsMapping[repo] || projectsMapping[repo.split('/')[1]] || null;
+
             const isPR = !!issue.pull_request;
             const isMerged = isPR && issue.pull_request?.merged_at;
             const newState = issue.state === 'open' ? 'Open' : 'Closed';
@@ -259,6 +266,7 @@ class Plugin extends AppPlugin {
                 title: issue.title,
                 source: 'GitHub',
                 repo: repo,
+                project: project,
                 number: issue.number,
                 type: isPR ? 'PR' : 'Issue',
                 state: newState,
@@ -360,6 +368,9 @@ class Plugin extends AppPlugin {
         this.setField(record, 'external_id', data.external_id);
         this.setField(record, 'source', data.source);
         this.setField(record, 'repo', data.repo);
+        if (data.project) {
+            this.setField(record, 'project', data.project);
+        }
         this.setField(record, 'number', data.number);
         this.setField(record, 'type', data.type);
         this.setField(record, 'state', data.state);

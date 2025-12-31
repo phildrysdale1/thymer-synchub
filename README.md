@@ -96,7 +96,7 @@ In the Sync Hub collection, each plugin auto-creates its record. Configure:
 
 | Plugin | Config Field |
 |--------|--------------|
-| GitHub | `token`: Personal access token<br>`config`: `{"repos": ["owner/repo"]}` |
+| GitHub | `token`: Personal access token<br>`config`: `{"projects": {"owner/repo": "Project Name"}}` maps repos to project labels |
 | Readwise | `token`: Readwise access token |
 | Google Calendar | `config`: `{"auth_url": "..."}` (optional, has default)<br>`token`: set by OAuth |
 | Google Contacts | `config`: `{"auth_url": "https://your-endpoint/google?service=contacts"}` (required)<br>`token`: set by OAuth<br>**Note:** Enable [People API](https://console.developers.google.com/apis/api/people.googleapis.com) in your GCP project |
