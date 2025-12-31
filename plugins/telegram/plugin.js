@@ -350,18 +350,34 @@ class Plugin extends AppPlugin {
      * Fetch a web page and extract title, description, author, and content
      */
     async fetchPageInfo(url, debug) {
-        const response = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (compatible; ThymerBot/1.0)',
-            }
-        });
+        let html;
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        // Try direct fetch first
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; ThymerBot/1.0)',
+                }
+            });
+            if (response.ok) {
+                html = await response.text();
+                debug(`Direct fetch: ${html.length} bytes`);
+            }
+        } catch (e) {
+            debug(`Direct fetch failed (CORS?): ${e.message}`);
         }
 
-        const html = await response.text();
-        debug(`Fetched ${html.length} bytes`);
+        // If direct fetch failed, try CORS proxy
+        if (!html) {
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+            debug(`Trying CORS proxy...`);
+            const response = await fetch(proxyUrl);
+            if (!response.ok) {
+                throw new Error(`Proxy failed: HTTP ${response.status}`);
+            }
+            html = await response.text();
+            debug(`Proxy fetch: ${html.length} bytes`);
+        }
 
         // Extract metadata
         const title = this.extractTitle(html) || url;
