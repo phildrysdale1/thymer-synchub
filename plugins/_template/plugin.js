@@ -6,8 +6,8 @@
  * Replace:
  * - PLUGIN_ID: unique identifier (e.g., 'my-source-sync')
  * - PLUGIN_NAME: display name (e.g., 'My Source')
- * - PLUGIN_ICON: Tabler icon class (e.g., 'ti-brand-github')
- * - TARGET_COLLECTION: collection to write to (e.g., 'Issues')
+ * - PLUGIN_ICON: Tabler icon name without ti- prefix (e.g., 'brand-github')
+ * - TARGET_COLLECTION: collection to write to (e.g., 'Issues', 'Captures')
  */
 
 class Plugin extends AppPlugin {
@@ -17,36 +17,51 @@ class Plugin extends AppPlugin {
     // =========================================================================
 
     async onLoad() {
-        this.log('Template Sync loading...');
-        this.waitForSyncHub();
+        // Command palette: Manual sync
+        this.syncCommand = this.ui.addCommandPaletteCommand({
+            label: 'PLUGIN_NAME Sync',
+            icon: 'PLUGIN_ICON',
+            onSelected: () => this.triggerSync()
+        });
+
+        // Listen for Sync Hub ready event (handles reloads)
+        this.syncHubReadyHandler = () => this.registerWithSyncHub();
+        window.addEventListener('synchub-ready', this.syncHubReadyHandler);
+
+        // Also check if Sync Hub is already ready
+        if (window.syncHub) {
+            this.registerWithSyncHub();
+        }
     }
 
     onUnload() {
+        if (this.syncCommand) {
+            this.syncCommand.remove();
+        }
+        if (this.syncHubReadyHandler) {
+            window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
+        }
         if (window.syncHub) {
             window.syncHub.unregister('PLUGIN_ID');
         }
-        this.log('Template Sync unloaded.');
     }
 
-    waitForSyncHub() {
+    async triggerSync() {
         if (window.syncHub) {
-            this.registerWithSyncHub();
-        } else {
-            setTimeout(() => this.waitForSyncHub(), 1000);
-            this.log('Waiting for Sync Hub...');
+            await window.syncHub.requestSync('PLUGIN_ID');
         }
     }
 
     async registerWithSyncHub() {
+        console.log('[PLUGIN_NAME] Registering with Sync Hub...');
         await window.syncHub.register({
             id: 'PLUGIN_ID',
             name: 'PLUGIN_NAME',
-            icon: 'PLUGIN_ICON',
+            icon: 'ti-PLUGIN_ICON',
             defaultInterval: '5m',
             sync: async (ctx) => this.sync(ctx),
         });
-
-        this.log('Registered with Sync Hub');
+        console.log('[PLUGIN_NAME] Registered successfully');
     }
 
     // =========================================================================
@@ -54,29 +69,32 @@ class Plugin extends AppPlugin {
     // =========================================================================
 
     async sync({ data, ui, log, debug }) {
+        // log() = shown in journal at Info level (use for errors only)
+        // debug() = shown only at Debug level (use for routine messages)
+
         // 1. Get config from Sync Hub record
         const collections = await data.getAllCollections();
         const syncHubCollection = collections.find(c => c.getName() === 'Sync Hub');
 
         if (!syncHubCollection) {
             log('Sync Hub collection not found');
-            return { summary: 'Sync Hub not found', created: 0, updated: 0 };
+            return { summary: 'Sync Hub not found', created: 0, updated: 0, changes: [] };
         }
 
         const syncHubRecords = await syncHubCollection.getAllRecords();
         const myRecord = syncHubRecords.find(r => r.text('plugin_id') === 'PLUGIN_ID');
 
         if (!myRecord) {
-            log('Plugin record not found in Sync Hub');
-            return { summary: 'Not configured', created: 0, updated: 0 };
+            debug('Plugin record not found in Sync Hub');
+            return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 
         const token = myRecord.text('token');
         const configJson = myRecord.text('config');
 
         if (!token) {
-            log('No token configured');
-            return { summary: 'No token', created: 0, updated: 0 };
+            debug('No token configured');
+            return { summary: 'No token', created: 0, updated: 0, changes: [] };
         }
 
         // Parse config
@@ -84,7 +102,7 @@ class Plugin extends AppPlugin {
         try {
             config = configJson ? JSON.parse(configJson) : {};
         } catch (e) {
-            log('Invalid config JSON, using defaults');
+            debug('Invalid config JSON, using defaults');
         }
 
         // 2. Find target collection
@@ -92,16 +110,23 @@ class Plugin extends AppPlugin {
 
         if (!targetCollection) {
             log('Target collection not found');
-            return { summary: 'Collection not found', created: 0, updated: 0 };
+            return { summary: 'Collection not found', created: 0, updated: 0, changes: [] };
         }
 
         // 3. Fetch from source
+        debug('Fetching from source...');
         const items = await this.fetchFromSource(token, config, { log, debug });
+
+        if (items.length === 0) {
+            return { summary: 'No new items', created: 0, updated: 0, changes: [] };
+        }
+
+        debug(`Found ${items.length} item(s)`);
 
         // 4. Process items
         const result = await this.processItems(items, targetCollection, data, { log, debug });
 
-        // 5. Return summary
+        // 5. Return summary with changes for journal logging
         const summary = result.created > 0 || result.updated > 0
             ? `${result.created} new, ${result.updated} updated`
             : 'No changes';
@@ -110,6 +135,7 @@ class Plugin extends AppPlugin {
             summary,
             created: result.created,
             updated: result.updated,
+            changes: result.changes,  // Array of { verb, title, guid, major }
         };
     }
 
@@ -124,9 +150,13 @@ class Plugin extends AppPlugin {
         // const response = await fetch('https://api.example.com/items', {
         //     headers: { 'Authorization': `Bearer ${token}` },
         // });
+        // if (!response.ok) {
+        //     log(`API error: ${response.status}`);
+        //     return [];
+        // }
         // return await response.json();
 
-        log('fetchFromSource not implemented');
+        debug('fetchFromSource not implemented');
         return [];
     }
 
@@ -137,11 +167,12 @@ class Plugin extends AppPlugin {
     async processItems(items, targetCollection, data, { log, debug }) {
         let created = 0;
         let updated = 0;
+        const changes = [];
 
         const existingRecords = await targetCollection.getAllRecords();
 
         for (const item of items) {
-            // Generate unique external ID for this source
+            // Generate unique external ID for deduplication
             const externalId = `PLUGIN_ID_${item.id}`;
             const existingRecord = existingRecords.find(r => r.text('external_id') === externalId);
 
@@ -155,15 +186,29 @@ class Plugin extends AppPlugin {
                     this.updateRecord(existingRecord, recordData);
                     updated++;
                     debug(`Updated: ${recordData.title}`);
+                    changes.push({
+                        verb: 'updated',
+                        title: null,  // null = just show the record ref
+                        guid: existingRecord.guid,
+                        major: false
+                    });
                 }
             } else {
-                await this.createRecord(targetCollection, recordData);
-                created++;
-                debug(`Created: ${recordData.title}`);
+                const record = await this.createRecord(targetCollection, recordData);
+                if (record) {
+                    created++;
+                    debug(`Created: ${recordData.title}`);
+                    changes.push({
+                        verb: 'created',
+                        title: null,
+                        guid: record.guid,
+                        major: true
+                    });
+                }
             }
         }
 
-        return { created, updated };
+        return { created, updated, changes };
     }
 
     mapItemToRecord(item, externalId) {
@@ -171,7 +216,7 @@ class Plugin extends AppPlugin {
         return {
             external_id: externalId,
             title: item.title || item.name || 'Untitled',
-            source: 'PLUGIN_NAME',  // Use LABEL, not ID
+            source: 'PLUGIN_NAME',  // For choice fields, use LABEL not ID
             // Add more field mappings...
             created_at: item.created_at,
             updated_at: item.updated_at,
@@ -192,7 +237,7 @@ class Plugin extends AppPlugin {
         const record = records.find(r => r.guid === recordGuid);
 
         if (!record) {
-            console.warn(`[Template] Could not get record: ${recordGuid}`);
+            console.warn(`[PLUGIN_NAME] Could not get record: ${recordGuid}`);
             return null;
         }
 
@@ -208,8 +253,14 @@ class Plugin extends AppPlugin {
         this.setField(record, 'external_id', data.external_id);
         this.setField(record, 'source', data.source);
         // Add more fields...
-        this.setField(record, 'created_at', new Date(data.created_at));
-        this.setField(record, 'updated_at', new Date(data.updated_at));
+
+        // For datetime fields, use DateTime class
+        if (data.created_at) {
+            this.setDateTimeField(record, 'created_at', data.created_at);
+        }
+        if (data.updated_at) {
+            this.setDateTimeField(record, 'updated_at', data.updated_at);
+        }
     }
 
     setField(record, fieldId, value) {
@@ -218,7 +269,7 @@ class Plugin extends AppPlugin {
             if (!prop) return;
 
             if (typeof value === 'string') {
-                // setChoice matches by LABEL, not ID
+                // For choice fields, setChoice matches by LABEL not ID
                 if (typeof prop.setChoice === 'function') {
                     const success = prop.setChoice(value);
                     if (!success) {
@@ -235,16 +286,78 @@ class Plugin extends AppPlugin {
         }
     }
 
+    setDateTimeField(record, fieldId, dateValue) {
+        try {
+            const prop = record.prop(fieldId);
+            if (!prop) return;
+
+            // DateTime class is available globally in Thymer
+            if (typeof DateTime !== 'undefined') {
+                const dt = new DateTime(new Date(dateValue));
+                prop.set(dt.value());
+            }
+        } catch (e) {
+            // Field doesn't exist or DateTime not available
+        }
+    }
+
     // =========================================================================
-    // Logging
+    // Journal Helpers (optional - for multi-collection plugins)
     // =========================================================================
 
-    log(message, level = 'info') {
-        const prefix = '[Template]';  // Change to your plugin name
-        if (level === 'error') {
-            console.error(prefix, message);
-        } else {
-            console.log(prefix, message);
+    async getTodayJournalRecord(data) {
+        try {
+            const collections = await data.getAllCollections();
+            const journalCollection = collections.find(c => c.getName() === 'Journal');
+            if (!journalCollection) return null;
+
+            const records = await journalCollection.getAllRecords();
+
+            // Journal guids end with date in YYYYMMDD format
+            // Thymer uses previous day's journal until ~3am
+            const now = new Date();
+            const today = now.toISOString().slice(0, 10).replace(/-/g, '');
+
+            let journal = records.find(r => r.guid.endsWith(today));
+            if (journal) return journal;
+
+            // Fallback: yesterday (for late-night sessions)
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().slice(0, 10).replace(/-/g, '');
+
+            return records.find(r => r.guid.endsWith(yesterdayStr)) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async appendToJournal(journalRecord, timeStr, text) {
+        const existingItems = await journalRecord.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
+        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+        const newItem = await journalRecord.createLineItem(null, lastItem, 'text');
+        if (newItem) {
+            newItem.setSegments([
+                { type: 'bold', text: timeStr },
+                { type: 'text', text: ' ' + text }
+            ]);
+        }
+    }
+
+    async addRefToJournal(journalRecord, timeStr, verb, targetGuid) {
+        const existingItems = await journalRecord.getLineItems();
+        const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
+        const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+
+        const newItem = await journalRecord.createLineItem(null, lastItem, 'text');
+        if (newItem) {
+            newItem.setSegments([
+                { type: 'bold', text: timeStr },
+                { type: 'text', text: ` ${verb} ` },
+                { type: 'ref', text: { guid: targetGuid } }
+            ]);
         }
     }
 }
