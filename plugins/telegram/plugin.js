@@ -247,7 +247,7 @@ class Plugin extends AppPlugin {
 
         return {
             verb: 'captured',
-            title: title,
+            title: `"${title}" to`,
             guid: journal.guid,
             major: false
         };
@@ -265,7 +265,7 @@ class Plugin extends AppPlugin {
 
         return {
             verb: 'captured',
-            title: 'Calendar link',
+            title: `"Calendar link" to`,
             guid: journal.guid,
             major: false
         };
@@ -295,7 +295,7 @@ class Plugin extends AppPlugin {
             if (journal) {
                 await this.appendOneLiner(journal, timeStr, `[${pageInfo.title}](${url})`);
             }
-            return { verb: 'captured', title: pageInfo.title, guid: journal?.guid, major: false };
+            return { verb: 'captured', title: `"${pageInfo.title.slice(0, 40)}" to`, guid: journal?.guid, major: false };
         }
 
         // Check if we already have this URL captured (deduplication)
@@ -304,7 +304,7 @@ class Plugin extends AppPlugin {
         const existing = existingRecords.find(r => r.text('external_id') === externalId);
         if (existing) {
             debug(`Already captured: ${url}`);
-            return { verb: 'skipped', title: pageInfo.title, guid: existing.guid, major: false };
+            return { verb: 'skipped', title: null, guid: existing.guid, major: false };
         }
 
         // Create a capture record with the page title
@@ -350,7 +350,7 @@ class Plugin extends AppPlugin {
 
         return {
             verb: 'captured',
-            title: pageInfo.title,
+            title: null,  // ref IS the captured record
             guid: recordGuid,
             major: true
         };
@@ -506,7 +506,7 @@ class Plugin extends AppPlugin {
 
         return {
             verb: 'captured',
-            title: caption,
+            title: `"[Photo] ${caption.slice(0, 30)}" to`,
             guid: journal?.guid,
             major: false
         };
@@ -538,7 +538,7 @@ class Plugin extends AppPlugin {
             await this.appendOneLiner(journal, timeStr, content);
             return {
                 verb: 'noted',
-                title: content.slice(0, 50),
+                title: `"${content.slice(0, 40)}" to`,
                 guid: journal.guid,
                 major: false
             };
@@ -549,7 +549,7 @@ class Plugin extends AppPlugin {
             await this.appendShortNote(journal, timeStr, lines, data);
             return {
                 verb: 'noted',
-                title: lines[0].slice(0, 50),
+                title: `"${lines[0].slice(0, 40)}" to`,
                 guid: journal.guid,
                 major: false
             };
@@ -571,7 +571,7 @@ class Plugin extends AppPlugin {
                 await this.insertMarkdownToJournal(content, journal, timeStr, data);
                 return {
                     verb: 'noted',
-                    title: lines[0].slice(0, 50),
+                    title: `"${lines[0].slice(0, 40)}" to`,
                     guid: journal.guid,
                     major: false
                 };
@@ -586,7 +586,7 @@ class Plugin extends AppPlugin {
             await this.insertMarkdownToJournal(timestampedContent, journal, timeStr, data);
             return {
                 verb: 'noted',
-                title: firstLine.slice(0, 50),
+                title: `"${firstLine.slice(0, 40)}" to`,
                 guid: journal.guid,
                 major: false
             };

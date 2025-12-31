@@ -418,13 +418,9 @@ class Plugin extends CollectionPlugin {
     // =========================================================================
 
     async appendChangeLog(syncHubRecordGuid, verb, title, targetRecordGuid) {
-        const timestamp = new Date().toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        });
+        const timestamp = this.formatTimestamp();
 
-        // Append to Sync Hub record body with verb + record reference
+        // Append to Sync Hub record body with verb + title + record reference
         try {
             const record = this.data.getRecord(syncHubRecordGuid);
             if (!record) return;
@@ -434,26 +430,45 @@ class Plugin extends CollectionPlugin {
             const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
             const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
 
-            // Create new line item: **15:21** opened [[Record Title]]
+            // Create new line item: **2025-01-15 15:21** verb "title" [Record]
             const newItem = await record.createLineItem(null, lastItem, 'text');
             if (newItem) {
-                newItem.setSegments([
+                const segments = [
                     { type: 'bold', text: timestamp },
-                    { type: 'text', text: ` ${verb} ` },
-                    { type: 'ref', text: { guid: targetRecordGuid } }
-                ]);
+                    { type: 'text', text: ` ${verb}` }
+                ];
+
+                // Include title if provided (plugin controls format)
+                if (title) {
+                    segments.push({ type: 'text', text: ` ${title}` });
+                }
+
+                // Add record reference if provided
+                if (targetRecordGuid) {
+                    segments.push({ type: 'text', text: ' ' });
+                    segments.push({ type: 'ref', text: { guid: targetRecordGuid } });
+                }
+
+                newItem.setSegments(segments);
             }
         } catch (e) {
             // Silently fail - logging shouldn't break sync
         }
     }
 
-    async appendLog(recordGuid, message, logLevel = 'info') {
-        const timestamp = new Date().toLocaleTimeString('en-US', {
+    formatTimestamp() {
+        const now = new Date();
+        const date = now.toISOString().slice(0, 10); // YYYY-MM-DD
+        const time = now.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
             hour12: false,
         });
+        return `${date} ${time}`;
+    }
+
+    async appendLog(recordGuid, message, logLevel = 'info') {
+        const timestamp = this.formatTimestamp();
 
         const logLine = `${timestamp} ${message}`;
 
