@@ -1,0 +1,231 @@
+{
+  "ver": 1,
+  "name": "People",
+  "icon": "ti-user",
+  "home": false,
+  "page_field_ids": [],
+  "item_name": "Person",
+  "description": "Contacts and relationships",
+  "show_sidebar_items": true,
+  "show_cmdpal_items": true,
+  "fields": [
+    {
+      "icon": "ti-id",
+      "id": "external_id",
+      "label": "External ID",
+      "type": "text",
+      "read_only": true,
+      "active": false
+    },
+    {
+      "icon": "ti-anchor",
+      "id": "source",
+      "label": "Source",
+      "type": "choice",
+      "read_only": true,
+      "active": true,
+      "choices": [
+        {
+          "id": "google",
+          "label": "Google",
+          "color": 3,
+          "active": true
+        },
+        {
+          "id": "linkedin",
+          "label": "LinkedIn",
+          "color": 4,
+          "active": true
+        },
+        {
+          "id": "manual",
+          "label": "Manual",
+          "color": 1,
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-mail",
+      "id": "email",
+      "label": "Email",
+      "type": "text",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-phone-call",
+      "id": "phone",
+      "label": "Phone",
+      "type": "text",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-building-skyscraper",
+      "id": "organization",
+      "label": "Organization",
+      "type": "text",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-briefcase",
+      "id": "job_title",
+      "label": "Job Title",
+      "type": "text",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-notes",
+      "id": "notes",
+      "label": "Notes",
+      "type": "text",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-calendar-event",
+      "id": "anniversary",
+      "label": "Anniversary",
+      "type": "datetime",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-refresh",
+      "id": "keep_in_touch",
+      "label": "Keep in Touch",
+      "type": "choice",
+      "read_only": false,
+      "active": true,
+      "choices": [
+        {
+          "id": "weekly",
+          "label": "Weekly",
+          "color": 9,
+          "active": true
+        },
+        {
+          "id": "monthly",
+          "label": "Monthly",
+          "color": 3,
+          "active": true
+        },
+        {
+          "id": "quarterly",
+          "label": "Quarterly",
+          "color": 4,
+          "active": true
+        },
+        {
+          "id": "yearly",
+          "label": "Yearly",
+          "color": 6,
+          "active": true
+        },
+        {
+          "id": "never",
+          "label": "Never",
+          "color": 1,
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-clock",
+      "id": "last_contact",
+      "label": "Last Contact",
+      "type": "datetime",
+      "read_only": false,
+      "active": true
+    },
+    {
+      "icon": "ti-clock-plus",
+      "id": "created_at",
+      "label": "Created",
+      "type": "datetime",
+      "read_only": true,
+      "active": false
+    },
+    {
+      "icon": "ti-clock-edit",
+      "id": "updated_at",
+      "label": "Updated",
+      "type": "datetime",
+      "read_only": true,
+      "active": false
+    },
+    {
+      "icon": "ti-abc",
+      "id": "title",
+      "label": "Title",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-photo",
+      "id": "banner",
+      "label": "Banner",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "banner"
+    }
+  ],
+  "sidebar_record_sort_dir": "asc",
+  "sidebar_record_sort_field_id": "title",
+  "managed": {
+    "fields": false,
+    "views": false,
+    "sidebar": false
+  },
+  "custom": {},
+  "views": [
+    {
+      "id": "VPEOPLE001",
+      "shown": true,
+      "icon": "",
+      "label": "All People",
+      "description": "",
+      "field_ids": ["title", "email", "phone", "organization", "keep_in_touch", "last_contact"],
+      "type": "table",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "asc",
+      "sort_field_id": "title",
+      "opts": {}
+    },
+    {
+      "id": "VPEOPLE002",
+      "shown": true,
+      "icon": "",
+      "label": "Keep in Touch",
+      "description": "",
+      "field_ids": ["title", "email", "organization", "last_contact"],
+      "type": "board",
+      "read_only": false,
+      "group_by_field_id": "keep_in_touch",
+      "sort_dir": "asc",
+      "sort_field_id": "title",
+      "opts": {}
+    },
+    {
+      "id": "VPEOPLE003",
+      "shown": true,
+      "icon": "",
+      "label": "By Source",
+      "description": "",
+      "field_ids": ["title", "email", "organization", "keep_in_touch"],
+      "type": "board",
+      "read_only": false,
+      "group_by_field_id": "source",
+      "sort_dir": "asc",
+      "sort_field_id": "title",
+      "opts": {}
+    }
+  ]
+}

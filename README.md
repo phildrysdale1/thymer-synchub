@@ -46,6 +46,7 @@ A plugin architecture for syncing external data sources into [Thymer](https://th
 | [GitHub](plugins/github/) | Issues | Working | Issues & PRs from multiple repos |
 | [Readwise](plugins/readwise/) | Captures | Working | Highlights from Reader |
 | [Google Calendar](plugins/google-calendar/) | Calendar | Working | OAuth via thymer-auth worker |
+| [Google Contacts](plugins/google-contacts/) | People | Working | OAuth via thymer-self-auth (RESTRICTED scope) |
 | [Telegram](plugins/telegram/) | Multi | Working | Smart routing to Journal/Captures/Issues |
 
 ## Quick Start
@@ -67,6 +68,9 @@ Create Collection Plugins in Thymer for each basket you need:
 **Calendar** (for Google Calendar):
 - Paste `collections/calendar/collection.json` → Configuration
 
+**People** (for Google Contacts):
+- Paste `collections/people/collection.json` → Configuration
+
 ### 2. Install Sync Plugins
 
 Create App Plugins for each source:
@@ -80,6 +84,9 @@ Create App Plugins for each source:
 **Google Calendar Sync**:
 - Paste `plugins/google-calendar/plugin.js` → Custom Code
 
+**Google Contacts Sync**:
+- Paste `plugins/google-contacts/plugin.js` → Custom Code
+
 **Telegram Sync**:
 - Paste `plugins/telegram/plugin.js` → Custom Code
 
@@ -91,7 +98,8 @@ In the Sync Hub collection, each plugin auto-creates its record. Configure:
 |--------|--------------|
 | GitHub | `token`: Personal access token<br>`config`: `{"repos": ["owner/repo"]}` |
 | Readwise | `token`: Readwise access token |
-| Google Calendar | `config`: `{"refresh_token": "...", "token_endpoint": "..."}` (from OAuth helper) |
+| Google Calendar | `config`: `{"auth_url": "..."}` (optional, has default)<br>`token`: set by OAuth |
+| Google Contacts | `config`: `{"auth_url": "https://your-endpoint/google?service=contacts"}` (required)<br>`token`: set by OAuth<br>**Note:** Enable [People API](https://console.developers.google.com/apis/api/people.googleapis.com) in your GCP project |
 | Telegram | `token`: Bot token from @BotFather |
 
 ## Status Bar
@@ -131,6 +139,8 @@ Each plugin record in Sync Hub has:
 - **Readwise Full Sync** / **Incremental Sync**
 - **Google Calendar Full Sync** / **Sync**
 - **Connect Google Calendar** - OAuth flow
+- **Google Contacts Full Sync** / **Sync**
+- **Connect Google Contacts** - OAuth flow (RESTRICTED scope)
 - **Telegram Sync**
 
 ## Creating New Plugins

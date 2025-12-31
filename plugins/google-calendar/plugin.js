@@ -5,17 +5,17 @@
  * Uses thymer-auth worker for OAuth token refresh.
  * Uses Thymer's DateTime class for proper time range support.
  *
- * Config format (from thymer-auth):
- * {
- *   "refresh_token": "...",
- *   "token_endpoint": "https://thymerhelper.lifelog.my/google/refresh"
- * }
+ * Config field (optional - has default):
+ *   {"auth_url": "https://thymerhelper.lifelog.my/google?service=calendar"}
+ *
+ * Token field (set by OAuth flow):
+ *   {"refresh_token": "...", "token_endpoint": "..."}
  */
 
 class Plugin extends AppPlugin {
 
-    // Auth helper URL
-    static AUTH_URL = 'https://thymerhelper.lifelog.my/google?service=calendar';
+    // Default auth helper URL (shared endpoint for non-sensitive scopes)
+    static DEFAULT_AUTH_URL = 'https://thymerhelper.lifelog.my/google?service=calendar';
 
     // =========================================================================
     // Lifecycle
@@ -82,7 +82,10 @@ class Plugin extends AppPlugin {
     // OAuth Connect Flow
     // =========================================================================
 
-    startConnect() {
+    async startConnect() {
+        // Get auth_url from config or use default
+        const authUrl = await this.getAuthUrl();
+
         // Open auth in popup
         const width = 500;
         const height = 700;
@@ -90,10 +93,30 @@ class Plugin extends AppPlugin {
         const top = (window.innerHeight - height) / 2 + window.screenY;
 
         window.open(
-            Plugin.AUTH_URL,
+            authUrl,
             'thymer-auth',
             `width=${width},height=${height},left=${left},top=${top}`
         );
+    }
+
+    async getAuthUrl() {
+        try {
+            const collections = await this.data.getAllCollections();
+            const syncHubCollection = collections.find(c => c.getName() === 'Sync Hub');
+            if (!syncHubCollection) return Plugin.DEFAULT_AUTH_URL;
+
+            const records = await syncHubCollection.getAllRecords();
+            const myRecord = records.find(r => r.text('plugin_id') === 'google-calendar-sync');
+            if (!myRecord) return Plugin.DEFAULT_AUTH_URL;
+
+            const configJson = myRecord.text('config');
+            if (!configJson) return Plugin.DEFAULT_AUTH_URL;
+
+            const config = JSON.parse(configJson);
+            return config.auth_url || Plugin.DEFAULT_AUTH_URL;
+        } catch (e) {
+            return Plugin.DEFAULT_AUTH_URL;
+        }
     }
 
     async handleAuthMessage(event) {
@@ -112,19 +135,19 @@ class Plugin extends AppPlugin {
             return;
         }
 
-        // Save config to Sync Hub record
+        // Save token to Sync Hub record
         try {
-            await this.saveConfig(config);
-            console.log('[Google Calendar] Config saved successfully');
+            await this.saveToken(config);
+            console.log('[Google Calendar] Token saved successfully');
 
             // Trigger initial sync
             this.triggerSync(true);
         } catch (e) {
-            console.error('[Google Calendar] Failed to save config:', e);
+            console.error('[Google Calendar] Failed to save token:', e);
         }
     }
 
-    async saveConfig(config) {
+    async saveToken(tokenData) {
         const collections = await this.data.getAllCollections();
         const syncHubCollection = collections.find(c => c.getName() === 'Sync Hub');
 
@@ -153,10 +176,10 @@ class Plugin extends AppPlugin {
             throw new Error('Could not find or create Sync Hub record');
         }
 
-        // Save config
-        const configProp = myRecord.prop('config');
-        if (configProp) {
-            configProp.set(JSON.stringify(config));
+        // Save token data to token field
+        const tokenProp = myRecord.prop('token');
+        if (tokenProp) {
+            tokenProp.set(JSON.stringify(tokenData));
         }
 
         // Enable the plugin
@@ -208,32 +231,32 @@ class Plugin extends AppPlugin {
             return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 
-        // Config contains refresh_token and token_endpoint
-        const configJson = myRecord.text('config');
+        // Token field contains refresh_token and token_endpoint
+        const tokenJson = myRecord.text('token');
         const lastRun = myRecord.prop('last_run')?.date();
 
-        if (!configJson) {
-            log('No config - visit thymer-auth to connect Google Calendar');
-            return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
+        if (!tokenJson) {
+            debug('No token - use "Connect Google Calendar" command');
+            return { summary: 'Not connected', created: 0, updated: 0, changes: [] };
         }
 
-        let config;
+        let tokenData;
         try {
-            config = JSON.parse(configJson);
+            tokenData = JSON.parse(tokenJson);
         } catch (e) {
-            log('Invalid config JSON');
-            return { summary: 'Invalid config', created: 0, updated: 0, changes: [] };
+            log('Invalid token JSON');
+            return { summary: 'Invalid token', created: 0, updated: 0, changes: [] };
         }
 
-        if (!config.refresh_token || !config.token_endpoint) {
-            log('Config missing refresh_token or token_endpoint');
-            return { summary: 'Invalid config', created: 0, updated: 0, changes: [] };
+        if (!tokenData.refresh_token || !tokenData.token_endpoint) {
+            log('Token missing refresh_token or token_endpoint');
+            return { summary: 'Invalid token', created: 0, updated: 0, changes: [] };
         }
 
         // Get fresh access token from thymer-auth
         let accessToken;
         try {
-            accessToken = await this.getAccessToken(config, { log, debug });
+            accessToken = await this.getAccessToken(tokenData, { log, debug });
         } catch (e) {
             log(`Token refresh failed: ${e.message}`);
             return { summary: 'Auth failed', created: 0, updated: 0, changes: [] };
