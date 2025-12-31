@@ -86,8 +86,8 @@ class Plugin extends AppPlugin {
         // Get bot token
         const botToken = myRecord.text('token');
         if (!botToken) {
-            log('No bot token. Add your Telegram bot token to the Token field.');
-            return { summary: 'Not configured - add bot token', created: 0, updated: 0 };
+            debug('No bot token configured');
+            return { summary: 'Not configured', created: 0, updated: 0 };
         }
 
         // Parse config for additional settings (like last_offset)

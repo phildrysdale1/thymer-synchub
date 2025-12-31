@@ -379,7 +379,9 @@ class Plugin extends CollectionPlugin {
                     await this.appendChangeLog(record.guid, change.verb, change.title, change.guid);
                 }
 
-                if (changes.length === 0 || logLevel === 'debug') {
+                // At debug level: always log summary with duration
+                // At info level: only log if we have changes (changes already logged above)
+                if (logLevel === 'debug') {
                     const summary = result?.summary || 'Sync complete';
                     await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
                 }
