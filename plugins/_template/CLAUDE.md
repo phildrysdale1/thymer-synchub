@@ -2,6 +2,15 @@
 
 You are helping build a Thymer Sync Hub plugin. This document contains the patterns and gotchas learned from building the existing plugins.
 
+## Getting Started
+
+Clone the Sync Hub repository to get the template and existing plugins:
+
+```bash
+git clone https://github.com/riclib/thymer-synchub.git
+cd thymer-synchub/plugins/_template
+```
+
 ## Background Reading
 
 The Sync Hub was built iteratively, documented in the "Becoming Lifelog" series:
