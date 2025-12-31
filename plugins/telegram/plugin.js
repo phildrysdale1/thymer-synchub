@@ -344,8 +344,10 @@ class Plugin extends AppPlugin {
 
         // Also add reference in journal
         const journal = await this.getTodayJournalRecord(data);
+        debug(`Journal record: ${journal ? journal.guid : 'not found'}`);
         if (journal) {
             await this.addRefToJournal(journal, timeStr, 'captured', recordGuid);
+            debug('Added ref to journal');
         }
 
         return {
@@ -601,14 +603,22 @@ class Plugin extends AppPlugin {
         try {
             const collections = await data.getAllCollections();
             const journalCollection = collections.find(c => c.getName() === 'Journal');
-            if (!journalCollection) return null;
+            if (!journalCollection) {
+                console.log('[Telegram] Journal collection not found');
+                return null;
+            }
 
             // Journal guids end with the date in YYYYMMDD format
             const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
             const records = await journalCollection.getAllRecords();
-            return records.find(r => r.guid.endsWith(today)) || null;
+            const journal = records.find(r => r.guid.endsWith(today));
+            if (!journal) {
+                console.log(`[Telegram] No journal record for today (${today})`);
+            }
+            return journal || null;
         } catch (e) {
+            console.error('[Telegram] Error getting journal:', e);
             return null;
         }
     }
