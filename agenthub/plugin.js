@@ -13,12 +13,17 @@ const BLANK_LINE_BEFORE_HEADINGS = true;
 const BASE_SYSTEM_PROMPT = `You are an AI assistant in Thymer, a personal workspace app.
 
 ## Context
-- Linked records appear in "Linked Context" at the start - already resolved, no need to search
-- Your previous responses are marked with 🤖
+- Linked records appear in "Linked Context" at the START of this conversation - already resolved
+- When asked to verify, cross-check, or reference sources - look at the Linked Context above
+- Do NOT call get_active_record or search tools for content already in Linked Context
+- Your previous responses (and other agents') are marked with 🤖
+- In multi-turn chats, the full source content remains in the first message
 
 ## Response Format
 - Use [[GUID]] to link to records - renders as the record's title, so don't repeat the title
-- Use markdown (headings, lists, bold, code)`;
+- Use markdown: headings, lists, bold, code blocks
+- NEVER use markdown tables - they render as broken text. Use bullet lists instead.
+- Answer directly from the provided context when possible`;
 
 class Plugin extends CollectionPlugin {
 
@@ -246,6 +251,10 @@ class Plugin extends CollectionPlugin {
             const result = await renderer.finalize();
             console.log('[AgentHub] Rendered:', result.rendered, 'items');
 
+            // Add top-level blank line for user's next message
+            const nextInputLine = await activeRecord.createLineItem(null, labelItem, 'text');
+            nextInputLine?.setSegments([]);
+
             // Update stats and set status back to Idle
             await this.updateAgentStats(agentRecord, agent.name);
             agentRecord?.prop('status')?.setChoice('idle');
@@ -304,9 +313,13 @@ Title:`;
             const title = await this.quickCompletion(agent, apiKey, titlePrompt);
 
             if (title && title.length < 50) {
-                const cleanTitle = title.trim().replace(/^["']|["']$/g, '').replace(/[.!?]$/, '');
+                const cleanTitle = title.trim()
+                    .replace(/<\|.*?\|>/g, '')      // Strip model tokens like <|im_end|>, <|endoftext|>
+                    .replace(/^["']|["']$/g, '')   // Remove wrapping quotes
+                    .replace(/[.!?]$/, '')         // Remove trailing punctuation
+                    .trim();
                 console.log('[AgentHub] Setting title:', cleanTitle);
-                record.prop('title')?.set(cleanTitle);
+                if (cleanTitle) record.prop('title')?.set(cleanTitle);
             }
         } catch (e) {
             console.log('[AgentHub] Title suggestion failed (non-critical):', e.message);
@@ -382,8 +395,8 @@ Title:`;
 
     /**
      * Parse a chat page into messages.
-     * - Lines matching **AgentName 🤖:** are assistant messages
-     * - Everything else is user content
+     * - Agent markers (**AgentName 🤖:**) and their CHILDREN are assistant messages
+     * - Top-level items (not children of markers) are user content
      * - Links [[...]] get resolved and inlined as context
      */
     async parseChatPage(record, currentAgentName) {
@@ -392,71 +405,79 @@ Title:`;
         const messages = [];
         const linkedContent = new Map();
 
-        let currentRole = null;
-        let currentContent = '';
-
         // Pattern: **AgentName 🤖:** (bold text ending with robot emoji and colon)
         const agentMarkerPattern = /^(.+)\s*🤖:$/;
 
+        // First pass: identify agent marker guids
+        const agentMarkerGuids = new Set();
         for (const item of items) {
-            // Debug: log segments with refs
-            const hasRef = (item.segments || []).some(s => s.type === 'ref');
-            if (hasRef) {
-                console.log('[AgentHub] Item with ref segments:', JSON.stringify(item.segments));
+            if (item.parent_guid !== record.guid) continue; // Only top-level
+            const firstSegment = item.segments?.[0];
+            if (firstSegment?.type === 'bold') {
+                const text = (item.segments || []).map(s => s.text || '').join('');
+                if (agentMarkerPattern.test(text)) {
+                    agentMarkerGuids.add(item.guid);
+                }
             }
+        }
 
-            // Extract text, handling ref segments specially (they have object text with guid)
+        let currentRole = null;
+        let currentContent = '';
+
+        for (const item of items) {
+            const parentGuid = item.parent_guid;
+            const isTopLevel = parentGuid === record.guid;
+            const isAgentChild = agentMarkerGuids.has(parentGuid);
+
+            // Extract text, including ref GUIDs as [[GUID]] so LLM sees something
             const text = (item.segments || []).map(s => {
                 if (s.type === 'ref' && typeof s.text === 'object') {
-                    return ''; // Skip ref content in text, it's handled as linked context
+                    return `[[${s.text.guid}]]`;
                 }
                 return s.text || '';
             }).join('');
-            const parentGuid = item.parent_guid;
 
-            // Only process top-level items
-            if (parentGuid !== record.guid) {
-                continue;
-            }
+            // Skip items that are nested deeper (children of children)
+            if (!isTopLevel && !isAgentChild) continue;
 
-            // Check if this is an agent marker (look at first segment for bold)
-            const firstSegment = item.segments?.[0];
-            const isBoldMarker = firstSegment?.type === 'bold';
-            const markerMatch = isBoldMarker && text.match(agentMarkerPattern);
+            if (isTopLevel) {
+                // Check if this is an agent marker
+                const firstSegment = item.segments?.[0];
+                const isBoldMarker = firstSegment?.type === 'bold';
+                const markerMatch = isBoldMarker && text.match(agentMarkerPattern);
 
-            if (markerMatch) {
-                // Save previous message
-                if (currentRole && currentContent.trim()) {
-                    messages.push({ role: currentRole, content: currentContent.trim() });
-                }
-                currentRole = 'assistant';
-                currentContent = '';
-            } else if (text.trim()) {
-                // User content or continuation
-                if (currentRole === 'assistant') {
-                    // Continuation of assistant message
-                    currentContent += (currentContent ? '\n' : '') + text;
-                } else {
-                    // Save previous user content if switching
-                    if (currentRole === 'user' && currentContent.trim()) {
+                if (markerMatch) {
+                    // Save previous message
+                    if (currentRole && currentContent.trim()) {
                         messages.push({ role: currentRole, content: currentContent.trim() });
-                        currentContent = '';
+                    }
+                    currentRole = 'assistant';
+                    currentContent = '';
+                } else if (text.trim()) {
+                    // User content - save previous and start new
+                    if (currentRole && currentContent.trim()) {
+                        messages.push({ role: currentRole, content: currentContent.trim() });
                     }
                     currentRole = 'user';
-                    currentContent += (currentContent ? '\n' : '') + text;
+                    currentContent = text;
                 }
+            } else if (isAgentChild && text.trim()) {
+                // Child of agent marker = assistant content
+                if (currentRole !== 'assistant') {
+                    if (currentRole && currentContent.trim()) {
+                        messages.push({ role: currentRole, content: currentContent.trim() });
+                    }
+                    currentRole = 'assistant';
+                    currentContent = '';
+                }
+                currentContent += (currentContent ? '\n' : '') + text;
             }
 
             // Extract linked content for context
             const links = this.extractLinks(item.segments || []);
-            if (links.length > 0) {
-                console.log('[AgentHub] Found links:', links);
-            }
             for (const link of links) {
                 if (link.guid && !linkedContent.has(link.guid)) {
-                    console.log('[AgentHub] Resolving link:', link.guid);
                     const content = await this.resolveLink(link.guid);
-                    console.log('[AgentHub] Resolved content:', content?.slice(0, 100));
                     if (content) {
                         linkedContent.set(link.guid, { title: link.title, content });
                     }
@@ -464,14 +485,12 @@ Title:`;
             }
         }
 
-        // Debug: log all segments to see link structure
-        console.log('[AgentHub] Total linked content items:', linkedContent.size);
-
         // Don't forget the last message
         if (currentRole && currentContent.trim()) {
             messages.push({ role: currentRole, content: currentContent.trim() });
         }
 
+        console.log('[AgentHub] Parsed messages:', messages.length, 'linked:', linkedContent.size);
         return { messages, linkedContent };
     }
 
@@ -491,7 +510,6 @@ Title:`;
 
     async resolveLink(guid) {
         // Resolve a block/page GUID to its content
-        // For now, return placeholder
         try {
             const collections = await this.data.getAllCollections();
             for (const collection of collections) {
@@ -499,7 +517,13 @@ Title:`;
                 const record = records.find(r => r.guid === guid);
                 if (record) {
                     const items = await record.getLineItems();
-                    return items.map(i => (i.segments || []).map(s => s.text || '').join('')).join('\n');
+                    return items.map(i => (i.segments || []).map(s => {
+                        // Handle ref segments (same fix as parseChatPage)
+                        if (s.type === 'ref' && typeof s.text === 'object') {
+                            return s.text.title || `[[${s.text.guid}]]`;
+                        }
+                        return s.text || '';
+                    }).join('')).join('\n');
                 }
             }
         } catch (e) {
@@ -509,6 +533,19 @@ Title:`;
     }
 
     buildMessages(messages, linkedContent) {
+        // Replace [[GUID]] with titles in all messages
+        if (linkedContent.size > 0) {
+            for (const [guid, { title }] of linkedContent) {
+                const pattern = new RegExp(`\\[\\[${guid}\\]\\]`, 'g');
+                for (let i = 0; i < messages.length; i++) {
+                    messages[i] = {
+                        ...messages[i],
+                        content: messages[i].content.replace(pattern, `"${title}"`)
+                    };
+                }
+            }
+        }
+
         // If there's linked content, prepend it to the first user message
         if (linkedContent.size > 0 && messages.length > 0) {
             let contextBlock = '---\nLinked Context (already resolved - no need to search):\n';
@@ -1253,8 +1290,9 @@ Title:`;
             isFirstBlock: true,
 
             async init() {
-                this.lastItemPromise = Promise.resolve(this.labelItem);
-                this.previewItem = await this.record.createLineItem(null, this.labelItem, 'text');
+                // All response items are children of the label (agent marker)
+                this.lastItemPromise = Promise.resolve(null); // null = first child
+                this.previewItem = await this.record.createLineItem(this.labelItem, null, 'text');
             },
 
             update(fullText) {
@@ -1309,14 +1347,15 @@ Title:`;
 
                         // Add blank line before headings (except first block)
                         if (needsBlankLine) {
-                            const blank = await renderer.record.createLineItem(null, insertAfter, 'text');
+                            const blank = await renderer.record.createLineItem(renderer.labelItem, insertAfter, 'text');
                             if (blank) {
                                 blank.setSegments([]);
                                 insertAfter = blank;
                             }
                         }
 
-                        const item = await renderer.record.createLineItem(null, insertAfter, type);
+                        // Create as child of labelItem (agent marker)
+                        const item = await renderer.record.createLineItem(renderer.labelItem, insertAfter, type);
                         if (item) {
                             if (isHeading && level > 1) {
                                 try { item.setHeadingSize?.(level); } catch(e) {}
@@ -1339,7 +1378,8 @@ Title:`;
 
                 this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
                     try {
-                        const block = await renderer.record.createLineItem(null, lastItem, 'block');
+                        // Create code block as child of labelItem (agent marker)
+                        const block = await renderer.record.createLineItem(renderer.labelItem, lastItem, 'block');
                         if (!block) return lastItem;
 
                         try { block.setHighlightLanguage?.(self.normalizeLanguage(lang)); } catch(e) {}

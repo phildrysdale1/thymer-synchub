@@ -1,33 +1,42 @@
 # Thymer Sync Hub
 
-A plugin architecture for syncing external data sources into [Thymer](https://thymer.com).
+A plugin architecture for syncing external data sources into [Thymer](https://thymer.com), plus AI agents that use those sources.
 
 ## The Laundromat Architecture
 
 ```
-                    THE LAUNDROMAT
+                    THE SMART LAUNDROMAT
 
-    ┌─────────────────────────────────────────────┐
-    │                 SYNC HUB                    │
-    │           (the orchestrator)                │
-    │                                             │
-    │   ┌──────┐ ┌────────┐ ┌────────┐ ┌────────┐ │
-    │   │GitHub│ │Readwise│ │G. Cal  │ │Telegram│ │
-    │   └──┬───┘ └───┬────┘ └───┬────┘ └───┬────┘ │
-    │      │         │          │          │      │
-    │      └─────────┴──────────┴──────────┘      │
-    │                     │                       │
-    │         ┌───────────┼───────────┐           │
-    │         ▼           ▼           ▼           │
-    │      ISSUES     CAPTURES     CALENDAR       │
-    │      (baskets of clean laundry)             │
-    └─────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────┐
+    │                   AGENT HUB                         │
+    │              (the AI operators)                     │
+    │    ┌──────┐ ┌──────┐ ┌──────┐                      │
+    │    │Claude│ │ Qwen │ │Llama │  ← Chat on any page  │
+    │    └──┬───┘ └──┬───┘ └──┬───┘                      │
+    │       └────────┴────────┘                          │
+    │                │ uses tools                        │
+    ├────────────────┼───────────────────────────────────┤
+    │                ▼                                   │
+    │             SYNC HUB                               │
+    │        (the orchestrator)                          │
+    │                                                    │
+    │   ┌──────┐ ┌────────┐ ┌────────┐ ┌────────┐       │
+    │   │GitHub│ │Readwise│ │G. Cal  │ │Telegram│       │
+    │   └──┬───┘ └───┬────┘ └───┬────┘ └───┬────┘       │
+    │      └─────────┴──────────┴──────────┘            │
+    │                     │                             │
+    │         ┌───────────┼───────────┐                 │
+    │         ▼           ▼           ▼                 │
+    │      ISSUES     CAPTURES     CALENDAR             │
+    │      (baskets of clean laundry)                   │
+    └─────────────────────────────────────────────────────┘
 ```
 
-**Same baskets. Different machines.**
+**Same baskets. Different machines. Smart operators.**
 
-- **Sync Hub**: The orchestrator that schedules and runs sync plugins
-- **Collections**: Source-agnostic "real world objects" (Issues, Captures, Calendar)
+- **Agent Hub**: AI assistants that chat on pages and use tools ([docs](agenthub/))
+- **Sync Hub**: The orchestrator that schedules syncs and registers tools
+- **Collections**: Source-agnostic "real world objects" (Issues, Captures, Calendar, Chats)
 - **Plugins**: "Washing machines" that fetch from sources and output clean data
 
 ## Features
@@ -71,9 +80,23 @@ Create Collection Plugins in Thymer for each basket you need:
 **People** (for Google Contacts):
 - Paste `collections/people/collection.json` → Configuration
 
-### 2. Install Sync Plugins
+**Chats** (for AI conversations):
+- Paste `collections/chats/collection.json` → Configuration
 
-Create App Plugins for each source:
+### 2. Install AgentHub (Optional but Recommended)
+
+Create a **Collection Plugin** for AI agents:
+
+1. Paste `agenthub/collection.json` → Configuration
+2. Paste `agenthub/plugin.js` → Custom Code
+3. Create agents with names, providers, and API keys
+4. Chat on any page via Command Palette
+
+See [AgentHub docs](agenthub/) for full setup.
+
+### 3. Install Sync Plugins (Optional)
+
+Create App Plugins for each source you want to sync:
 
 **GitHub Sync**:
 - Paste `plugins/github/plugin.js` → Custom Code
@@ -90,7 +113,7 @@ Create App Plugins for each source:
 **Telegram Sync**:
 - Paste `plugins/telegram/plugin.js` → Custom Code
 
-### 3. Configure Each Plugin
+### 4. Configure Each Plugin
 
 In the Sync Hub collection, each plugin auto-creates its record. Configure:
 
@@ -218,6 +241,7 @@ class Plugin extends AppPlugin {
 
 ## Documentation
 
+- [AgentHub](agenthub/) - AI agents that chat on pages and use tools
 - [Architecture](docs/architecture.md) - The Laundromat explained
 - [SDK Notes](docs/sdk-notes.md) - Gotchas and workarounds
 - [Field Mappings](docs/field-mappings.md) - Mapping source fields to collections

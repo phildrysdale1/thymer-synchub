@@ -736,7 +736,7 @@ class Plugin extends CollectionPlugin {
                 type: 'function',
                 function: {
                     name: 'get_active_record',
-                    description: 'Get the currently open record in Thymer, including its fields and body content.',
+                    description: 'Get the current page including its fields and body content.',
                     parameters: { type: 'object', properties: {}, required: [] }
                 },
                 _core: true
