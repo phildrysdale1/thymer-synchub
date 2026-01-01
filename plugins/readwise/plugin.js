@@ -58,7 +58,164 @@ class Plugin extends AppPlugin {
             defaultInterval: '1h',
             sync: async (ctx) => this.sync(ctx),
         });
+
+        // Register collection tools for agents
+        this.registerCollectionTools();
+
         console.log('[Readwise] Registered successfully');
+    }
+
+    registerCollectionTools() {
+        if (!window.syncHub?.registerCollectionTools) return;
+
+        window.syncHub.registerCollectionTools({
+            collection: 'Captures',
+            description: 'Highlights and notes from Readwise, Kindle, and web',
+            schema: {
+                title: 'Capture title',
+                content: 'Highlight text content',
+                source: 'Readwise | Kindle | Web | Manual',
+                source_title: 'Book or article title',
+                source_author: 'Author name',
+                source_url: 'Link to source',
+                tags: 'User-added tags',
+                captured_at: 'When captured'
+            },
+            tools: [
+                {
+                    name: 'find',
+                    description: 'Find captures by source, author, or title. Returns GUIDs - use [[GUID]] in your response to create clickable links.',
+                    parameters: {
+                        source: { type: 'string', enum: ['Readwise', 'Kindle', 'Web', 'Manual'], optional: true },
+                        author: { type: 'string', description: 'Filter by source author', optional: true },
+                        title: { type: 'string', description: 'Filter by source title (partial match)', optional: true },
+                        limit: { type: 'number', optional: true }
+                    },
+                    handler: async (args, data) => this.toolFindCaptures(args, data)
+                },
+                {
+                    name: 'search',
+                    description: 'Search captures by content text. Returns GUIDs - use [[GUID]] to link.',
+                    parameters: {
+                        query: { type: 'string', description: 'Text to search for in highlights' },
+                        limit: { type: 'number', optional: true }
+                    },
+                    handler: async (args, data) => this.toolSearchCaptures(args, data)
+                },
+                {
+                    name: 'recent',
+                    description: 'Get recently captured highlights. Returns GUIDs - use [[GUID]] to link.',
+                    parameters: {
+                        limit: { type: 'number', optional: true, description: 'Number of captures (default 10)' }
+                    },
+                    handler: async (args, data) => this.toolRecentCaptures(args, data)
+                }
+            ]
+        });
+    }
+
+    // =========================================================================
+    // Tool Handlers
+    // =========================================================================
+
+    async toolFindCaptures(args, data) {
+        const collections = await data.getAllCollections();
+        const captures = collections.find(c => c.getName() === 'Captures');
+        if (!captures) return { error: 'Captures collection not found' };
+
+        const records = await captures.getAllRecords();
+        let results = records;
+
+        // Filter by source
+        if (args.source) {
+            results = results.filter(r => r.prop('source')?.choice() === args.source);
+        }
+
+        // Filter by author
+        if (args.author) {
+            const authorLower = args.author.toLowerCase();
+            results = results.filter(r =>
+                r.text('source_author')?.toLowerCase().includes(authorLower)
+            );
+        }
+
+        // Filter by title
+        if (args.title) {
+            const titleLower = args.title.toLowerCase();
+            results = results.filter(r =>
+                r.text('source_title')?.toLowerCase().includes(titleLower) ||
+                r.getName()?.toLowerCase().includes(titleLower)
+            );
+        }
+
+        // Apply limit
+        const limit = args.limit || 20;
+        results = results.slice(0, limit);
+
+        return results.map(r => ({
+            guid: r.guid,
+            title: r.getName(),
+            source: r.prop('source')?.choice(),
+            source_title: r.text('source_title'),
+            source_author: r.text('source_author'),
+            highlight_count: r.prop('highlight_count')?.number()
+        }));
+    }
+
+    async toolSearchCaptures(args, data) {
+        if (!args.query) return { error: 'Query required' };
+
+        const collections = await data.getAllCollections();
+        const captures = collections.find(c => c.getName() === 'Captures');
+        if (!captures) return { error: 'Captures collection not found' };
+
+        const records = await captures.getAllRecords();
+        const queryLower = args.query.toLowerCase();
+
+        // Search in content and titles
+        let results = records.filter(r => {
+            const content = r.text('content')?.toLowerCase() || '';
+            const title = r.getName()?.toLowerCase() || '';
+            const sourceTitle = r.text('source_title')?.toLowerCase() || '';
+            return content.includes(queryLower) || title.includes(queryLower) || sourceTitle.includes(queryLower);
+        });
+
+        const limit = args.limit || 10;
+        results = results.slice(0, limit);
+
+        return results.map(r => ({
+            guid: r.guid,
+            title: r.getName(),
+            source_title: r.text('source_title'),
+            source_author: r.text('source_author'),
+            preview: r.text('content')?.slice(0, 200)
+        }));
+    }
+
+    async toolRecentCaptures(args, data) {
+        const collections = await data.getAllCollections();
+        const captures = collections.find(c => c.getName() === 'Captures');
+        if (!captures) return { error: 'Captures collection not found' };
+
+        const records = await captures.getAllRecords();
+
+        // Sort by captured_at descending
+        const sorted = records.sort((a, b) => {
+            const dateA = a.prop('captured_at')?.date() || new Date(0);
+            const dateB = b.prop('captured_at')?.date() || new Date(0);
+            return dateB - dateA;
+        });
+
+        const limit = args.limit || 10;
+        const results = sorted.slice(0, limit);
+
+        return results.map(r => ({
+            guid: r.guid,
+            title: r.getName(),
+            source_title: r.text('source_title'),
+            source_author: r.text('source_author'),
+            captured_at: r.prop('captured_at')?.date()?.toISOString()
+        }));
     }
 
     // =========================================================================

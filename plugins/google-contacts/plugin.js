@@ -194,7 +194,183 @@ class Plugin extends AppPlugin {
             defaultInterval: '1h', // Contacts don't change often
             sync: async (ctx) => this.sync(ctx),
         });
+
+        // Register collection tools for agents
+        this.registerCollectionTools();
+
         console.log('[Google Contacts] Registered successfully');
+    }
+
+    registerCollectionTools() {
+        if (!window.syncHub?.registerCollectionTools) return;
+
+        window.syncHub.registerCollectionTools({
+            collection: 'People',
+            description: 'Contacts and relationships from Google Contacts',
+            schema: {
+                title: 'Person name',
+                email: 'Email address',
+                phone: 'Phone number',
+                organization: 'Company name',
+                job_title: 'Job title',
+                notes: 'Notes about the person',
+                keep_in_touch: 'Weekly | Monthly | Quarterly | Yearly | Never',
+                last_contact: 'Date of last contact'
+            },
+            tools: [
+                {
+                    name: 'find',
+                    description: 'Find people by name, organization, or contact frequency. Returns GUIDs - use [[GUID]] in your response to create clickable links.',
+                    parameters: {
+                        name: { type: 'string', description: 'Name to search for (partial match)', optional: true },
+                        organization: { type: 'string', description: 'Company name (partial match)', optional: true },
+                        keep_in_touch: { type: 'string', enum: ['Weekly', 'Monthly', 'Quarterly', 'Yearly', 'Never'], optional: true },
+                        limit: { type: 'number', optional: true }
+                    },
+                    handler: async (args, data) => this.toolFindPeople(args, data)
+                },
+                {
+                    name: 'search',
+                    description: 'Search people by any field (name, email, organization, notes). Returns GUIDs - use [[GUID]] to link.',
+                    parameters: {
+                        query: { type: 'string', description: 'Search text' },
+                        limit: { type: 'number', optional: true }
+                    },
+                    handler: async (args, data) => this.toolSearchPeople(args, data)
+                },
+                {
+                    name: 'needs_contact',
+                    description: 'Get people who are overdue for contact based on their keep_in_touch setting. Returns GUIDs - use [[GUID]] to link.',
+                    parameters: {},
+                    handler: async (args, data) => this.toolNeedsContact(args, data)
+                }
+            ]
+        });
+    }
+
+    // =========================================================================
+    // Tool Handlers
+    // =========================================================================
+
+    async toolFindPeople(args, data) {
+        const collections = await data.getAllCollections();
+        const people = collections.find(c => c.getName() === 'People');
+        if (!people) return { error: 'People collection not found' };
+
+        const records = await people.getAllRecords();
+        let results = records;
+
+        // Filter by name
+        if (args.name) {
+            const nameLower = args.name.toLowerCase();
+            results = results.filter(r =>
+                r.getName()?.toLowerCase().includes(nameLower)
+            );
+        }
+
+        // Filter by organization
+        if (args.organization) {
+            const orgLower = args.organization.toLowerCase();
+            results = results.filter(r =>
+                r.text('organization')?.toLowerCase().includes(orgLower)
+            );
+        }
+
+        // Filter by keep_in_touch
+        if (args.keep_in_touch) {
+            results = results.filter(r => r.prop('keep_in_touch')?.choice() === args.keep_in_touch);
+        }
+
+        // Sort alphabetically
+        results = results.sort((a, b) => (a.getName() || '').localeCompare(b.getName() || ''));
+
+        const limit = args.limit || 20;
+        results = results.slice(0, limit);
+
+        return results.map(r => ({
+            guid: r.guid,
+            name: r.getName(),
+            email: r.text('email'),
+            organization: r.text('organization'),
+            job_title: r.text('job_title'),
+            keep_in_touch: r.prop('keep_in_touch')?.choice()
+        }));
+    }
+
+    async toolSearchPeople(args, data) {
+        if (!args.query) return { error: 'Query required' };
+
+        const collections = await data.getAllCollections();
+        const people = collections.find(c => c.getName() === 'People');
+        if (!people) return { error: 'People collection not found' };
+
+        const records = await people.getAllRecords();
+        const queryLower = args.query.toLowerCase();
+
+        let results = records.filter(r => {
+            const name = r.getName()?.toLowerCase() || '';
+            const email = r.text('email')?.toLowerCase() || '';
+            const org = r.text('organization')?.toLowerCase() || '';
+            const notes = r.text('notes')?.toLowerCase() || '';
+            return name.includes(queryLower) || email.includes(queryLower) ||
+                   org.includes(queryLower) || notes.includes(queryLower);
+        });
+
+        const limit = args.limit || 10;
+        results = results.slice(0, limit);
+
+        return results.map(r => ({
+            guid: r.guid,
+            name: r.getName(),
+            email: r.text('email'),
+            organization: r.text('organization'),
+            job_title: r.text('job_title')
+        }));
+    }
+
+    async toolNeedsContact(args, data) {
+        const collections = await data.getAllCollections();
+        const people = collections.find(c => c.getName() === 'People');
+        if (!people) return { error: 'People collection not found' };
+
+        const records = await people.getAllRecords();
+        const now = new Date();
+
+        // Calculate overdue based on keep_in_touch frequency
+        const intervalDays = {
+            'Weekly': 7,
+            'Monthly': 30,
+            'Quarterly': 90,
+            'Yearly': 365,
+            'Never': Infinity
+        };
+
+        let results = records.filter(r => {
+            const frequency = r.prop('keep_in_touch')?.choice();
+            if (!frequency || frequency === 'Never') return false;
+
+            const lastContact = r.prop('last_contact')?.date();
+            if (!lastContact) return true; // Never contacted = overdue
+
+            const daysSinceContact = (now - lastContact) / (1000 * 60 * 60 * 24);
+            return daysSinceContact > (intervalDays[frequency] || Infinity);
+        });
+
+        // Sort by most overdue first
+        results = results.sort((a, b) => {
+            const dateA = a.prop('last_contact')?.date() || new Date(0);
+            const dateB = b.prop('last_contact')?.date() || new Date(0);
+            return dateA - dateB;
+        });
+
+        return results.map(r => ({
+            guid: r.guid,
+            name: r.getName(),
+            email: r.text('email'),
+            organization: r.text('organization'),
+            keep_in_touch: r.prop('keep_in_touch')?.choice(),
+            last_contact: r.prop('last_contact')?.date()?.toISOString()
+        }));
     }
 
     // =========================================================================
