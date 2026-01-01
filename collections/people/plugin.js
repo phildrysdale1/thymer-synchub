@@ -7,6 +7,43 @@
 
 class Plugin extends CollectionPlugin {
 
+    // Map labels to IDs for choice fields (choice() returns ID not label)
+    KEEP_IN_TOUCH_LABEL_TO_ID = {
+        'Weekly': 'weekly',
+        'Monthly': 'monthly',
+        'Quarterly': 'quarterly',
+        'Yearly': 'yearly',
+        'Never': 'never'
+    };
+
+    // Convert label to ID for filtering
+    labelToId(label) {
+        return this.KEEP_IN_TOUCH_LABEL_TO_ID[label] || label.toLowerCase();
+    }
+
+    // Convert ID back to label for display
+    idToLabel(id) {
+        if (!id) return null;
+        for (const [label, mappedId] of Object.entries(this.KEEP_IN_TOUCH_LABEL_TO_ID)) {
+            if (mappedId === id || id.toLowerCase() === mappedId) return label;
+        }
+        return id.charAt(0).toUpperCase() + id.slice(1);
+    }
+
+    // Check if record's keep_in_touch matches target (handles both labels and IDs)
+    keepInTouchMatches(record, targetLabel) {
+        const choiceId = record.prop('keep_in_touch')?.choice();
+        if (!choiceId) return false;
+        const targetId = this.labelToId(targetLabel);
+        return choiceId === targetId || choiceId.toLowerCase() === targetId.toLowerCase();
+    }
+
+    // Get keep_in_touch value for comparison (returns normalized value)
+    getKeepInTouchValue(record) {
+        const id = record.prop('keep_in_touch')?.choice();
+        return this.idToLabel(id);
+    }
+
     async onLoad() {
         // Wait for SyncHub to register tools
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
@@ -102,7 +139,7 @@ class Plugin extends CollectionPlugin {
             results = results.filter(r => r.text('organization')?.toLowerCase().includes(orgLower));
         }
         if (args.keep_in_touch) {
-            results = results.filter(r => r.prop('keep_in_touch')?.choice() === args.keep_in_touch);
+            results = results.filter(r => this.keepInTouchMatches(r, args.keep_in_touch));
         }
 
         // Sort by name
@@ -117,7 +154,7 @@ class Plugin extends CollectionPlugin {
             email: r.text('email'),
             organization: r.text('organization'),
             job_title: r.text('job_title'),
-            keep_in_touch: r.prop('keep_in_touch')?.choice()
+            keep_in_touch: this.idToLabel(r.prop('keep_in_touch')?.choice())
         }));
     }
 
@@ -158,9 +195,10 @@ class Plugin extends CollectionPlugin {
         const records = await collection.getAllRecords();
         const now = new Date();
 
-        // Calculate overdue contacts
+        // Calculate overdue contacts (compare using labels after converting from IDs)
         const overdueResults = records.filter(r => {
-            const keepInTouch = r.prop('keep_in_touch')?.choice();
+            const keepInTouchId = r.prop('keep_in_touch')?.choice();
+            const keepInTouch = this.idToLabel(keepInTouchId);
             if (!keepInTouch || keepInTouch === 'Never') return false;
 
             const lastContact = r.prop('last_contact')?.date();
@@ -192,7 +230,7 @@ class Plugin extends CollectionPlugin {
             name: r.getName(),
             email: r.text('email'),
             organization: r.text('organization'),
-            keep_in_touch: r.prop('keep_in_touch')?.choice(),
+            keep_in_touch: this.idToLabel(r.prop('keep_in_touch')?.choice()),
             last_contact: r.prop('last_contact')?.date()?.toISOString()
         }));
     }
@@ -221,7 +259,7 @@ class Plugin extends CollectionPlugin {
                 name: r.getName(),
                 email: r.text('email'),
                 job_title: r.text('job_title'),
-                keep_in_touch: r.prop('keep_in_touch')?.choice()
+                keep_in_touch: this.idToLabel(r.prop('keep_in_touch')?.choice())
             }))
         };
     }

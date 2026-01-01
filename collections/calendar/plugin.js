@@ -7,6 +7,68 @@
 
 class Plugin extends CollectionPlugin {
 
+    // Map labels to IDs for choice fields (choice() returns ID not label)
+    CALENDAR_LABEL_TO_ID = {
+        'Primary': 'primary',
+        'Work': 'work',
+        'Personal': 'personal',
+        'Family': 'family'
+    };
+
+    STATUS_LABEL_TO_ID = {
+        'Confirmed': 'confirmed',
+        'Tentative': 'tentative',
+        'Cancelled': 'cancelled'
+    };
+
+    ENERGY_LABEL_TO_ID = {
+        'High': 'high',
+        'Medium': 'medium',
+        'Low': 'low'
+    };
+
+    OUTCOME_LABEL_TO_ID = {
+        'Productive': 'productive',
+        'Neutral': 'neutral',
+        'Waste': 'waste'
+    };
+
+    // Convert label to ID for filtering
+    labelToId(label, type = 'calendar') {
+        const maps = {
+            calendar: this.CALENDAR_LABEL_TO_ID,
+            status: this.STATUS_LABEL_TO_ID,
+            energy: this.ENERGY_LABEL_TO_ID,
+            outcome: this.OUTCOME_LABEL_TO_ID
+        };
+        const map = maps[type] || {};
+        return map[label] || label.toLowerCase();
+    }
+
+    // Convert ID back to label for display
+    idToLabel(id, type = 'calendar') {
+        if (!id) return null;
+        const maps = {
+            calendar: this.CALENDAR_LABEL_TO_ID,
+            status: this.STATUS_LABEL_TO_ID,
+            energy: this.ENERGY_LABEL_TO_ID,
+            outcome: this.OUTCOME_LABEL_TO_ID
+        };
+        const map = maps[type] || {};
+        for (const [label, mappedId] of Object.entries(map)) {
+            if (mappedId === id || id.toLowerCase() === mappedId) return label;
+        }
+        return id.charAt(0).toUpperCase() + id.slice(1);
+    }
+
+    // Check if record's choice matches target (handles both labels and IDs)
+    choiceMatches(record, fieldName, targetLabel) {
+        const choiceId = record.prop(fieldName)?.choice();
+        if (!choiceId) return false;
+        const targetId = this.labelToId(targetLabel, fieldName);
+        return choiceId === targetId || choiceId.toLowerCase() === targetId.toLowerCase();
+    }
+
     async onLoad() {
         // Wait for SyncHub to register tools
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
@@ -102,10 +164,10 @@ class Plugin extends CollectionPlugin {
         let results = records;
 
         if (args.calendar) {
-            results = results.filter(r => r.prop('calendar')?.choice() === args.calendar);
+            results = results.filter(r => this.choiceMatches(r, 'calendar', args.calendar));
         }
         if (args.status) {
-            results = results.filter(r => r.prop('status')?.choice() === args.status);
+            results = results.filter(r => this.choiceMatches(r, 'status', args.status));
         }
 
         // Sort by time ascending
@@ -122,8 +184,8 @@ class Plugin extends CollectionPlugin {
             guid: r.guid,
             title: r.getName(),
             time: r.prop('time_period')?.date()?.toISOString(),
-            calendar: r.prop('calendar')?.choice(),
-            status: r.prop('status')?.choice(),
+            calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
+            status: this.idToLabel(r.prop('status')?.choice(), 'status'),
             location: r.text('location')
         }));
     }
@@ -144,7 +206,7 @@ class Plugin extends CollectionPlugin {
         });
 
         if (args.calendar) {
-            results = results.filter(r => r.prop('calendar')?.choice() === args.calendar);
+            results = results.filter(r => this.choiceMatches(r, 'calendar', args.calendar));
         }
 
         // Sort by time
@@ -161,7 +223,7 @@ class Plugin extends CollectionPlugin {
                 guid: r.guid,
                 title: r.getName(),
                 time: r.prop('time_period')?.date()?.toISOString(),
-                calendar: r.prop('calendar')?.choice(),
+                calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
                 location: r.text('location'),
                 meet_link: r.text('meet_link'),
                 prep: r.prop('prep')?.checked()
@@ -185,7 +247,7 @@ class Plugin extends CollectionPlugin {
         });
 
         if (args.calendar) {
-            results = results.filter(r => r.prop('calendar')?.choice() === args.calendar);
+            results = results.filter(r => this.choiceMatches(r, 'calendar', args.calendar));
         }
 
         // Sort by time
@@ -205,7 +267,7 @@ class Plugin extends CollectionPlugin {
                 guid: r.guid,
                 title: r.getName(),
                 time: r.prop('time_period')?.date()?.toISOString(),
-                calendar: r.prop('calendar')?.choice(),
+                calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
                 location: r.text('location'),
                 prep: r.prop('prep')?.checked()
             }))
@@ -234,8 +296,8 @@ class Plugin extends CollectionPlugin {
             guid: r.guid,
             title: r.getName(),
             time: r.prop('time_period')?.date()?.toISOString(),
-            calendar: r.prop('calendar')?.choice(),
-            outcome: r.prop('outcome')?.choice()
+            calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
+            outcome: this.idToLabel(r.prop('outcome')?.choice(), 'outcome')
         }));
     }
 
@@ -262,7 +324,7 @@ class Plugin extends CollectionPlugin {
             guid: r.guid,
             title: r.getName(),
             time: r.prop('time_period')?.date()?.toISOString(),
-            calendar: r.prop('calendar')?.choice(),
+            calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
             location: r.text('location')
         }));
     }

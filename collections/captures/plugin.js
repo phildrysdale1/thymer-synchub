@@ -7,6 +7,36 @@
 
 class Plugin extends CollectionPlugin {
 
+    // Map labels to IDs for choice fields (choice() returns ID not label)
+    SOURCE_LABEL_TO_ID = {
+        'Readwise': 'readwise',
+        'Kindle': 'kindle',
+        'Web': 'web',
+        'Manual': 'manual'
+    };
+
+    // Convert label to ID for filtering
+    labelToId(label) {
+        return this.SOURCE_LABEL_TO_ID[label] || label.toLowerCase();
+    }
+
+    // Convert ID back to label for display
+    idToLabel(id) {
+        if (!id) return null;
+        for (const [label, mappedId] of Object.entries(this.SOURCE_LABEL_TO_ID)) {
+            if (mappedId === id || id.toLowerCase() === mappedId) return label;
+        }
+        return id.charAt(0).toUpperCase() + id.slice(1);
+    }
+
+    // Check if record's source matches target (handles both labels and IDs)
+    sourceMatches(record, targetLabel) {
+        const sourceId = record.prop('source')?.choice();
+        if (!sourceId) return false;
+        const targetId = this.labelToId(targetLabel);
+        return sourceId === targetId || sourceId.toLowerCase() === targetId.toLowerCase();
+    }
+
     async onLoad() {
         // Wait for SyncHub to register tools
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
@@ -90,7 +120,7 @@ class Plugin extends CollectionPlugin {
         let results = records;
 
         if (args.source) {
-            results = results.filter(r => r.prop('source')?.choice() === args.source);
+            results = results.filter(r => this.sourceMatches(r, args.source));
         }
         if (args.author) {
             const authorLower = args.author.toLowerCase();
@@ -107,7 +137,7 @@ class Plugin extends CollectionPlugin {
         return results.map(r => ({
             guid: r.guid,
             title: r.getName(),
-            source: r.prop('source')?.choice(),
+            source: this.idToLabel(r.prop('source')?.choice()),
             source_title: r.text('source_title'),
             source_author: r.text('source_author'),
             captured_at: r.prop('captured_at')?.date()?.toISOString()
@@ -137,7 +167,7 @@ class Plugin extends CollectionPlugin {
             guid: r.guid,
             title: r.getName(),
             content: r.text('content')?.substring(0, 200),
-            source: r.prop('source')?.choice(),
+            source: this.idToLabel(r.prop('source')?.choice()),
             source_title: r.text('source_title')
         }));
     }
@@ -149,7 +179,7 @@ class Plugin extends CollectionPlugin {
         let records = await collection.getAllRecords();
 
         if (args.source) {
-            records = records.filter(r => r.prop('source')?.choice() === args.source);
+            records = records.filter(r => this.sourceMatches(r, args.source));
         }
 
         // Sort by captured_at descending
@@ -166,7 +196,7 @@ class Plugin extends CollectionPlugin {
             guid: r.guid,
             title: r.getName(),
             content: r.text('content')?.substring(0, 200),
-            source: r.prop('source')?.choice(),
+            source: this.idToLabel(r.prop('source')?.choice()),
             source_title: r.text('source_title'),
             captured_at: r.prop('captured_at')?.date()?.toISOString()
         }));

@@ -160,16 +160,15 @@
           "active": true
         },
         {
-          "active": true,
-          "icon": "",
-          "id": "05AT8T9VGV1TVWC",
+          "id": "next",
           "label": "Next",
-          "color": 11
+          "color": 11,
+          "active": true
         },
         {
           "id": "in_progress",
           "label": "In Progress",
-          "color": "3",
+          "color": 3,
           "active": true
         },
         {
@@ -179,11 +178,10 @@
           "active": true
         },
         {
-          "active": true,
-          "icon": "",
-          "id": "0ZZJRQB7KTK0NQK",
+          "id": "cancelled",
           "label": "Cancelled",
-          "color": "13"
+          "color": 13,
+          "active": true
         }
       ]
     },

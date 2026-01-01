@@ -7,6 +7,60 @@
 
 class Plugin extends CollectionPlugin {
 
+    // State ID patterns - choice() returns ID not label
+    // Standard IDs are lowercase, but user-added choices may have auto-generated IDs
+    OPEN_STATE_IDS = ['open', 'next', 'in_progress'];
+    CLOSED_STATE_IDS = ['closed', 'cancelled'];
+
+    // Map labels to standard IDs for filtering
+    STATE_LABEL_TO_ID = {
+        'Open': 'open',
+        'Next': 'next',
+        'In Progress': 'in_progress',
+        'Closed': 'closed',
+        'Cancelled': 'cancelled'
+    };
+
+    // Check if a state ID matches any of the open states
+    isOpenState(stateId) {
+        if (!stateId) return false;
+        const id = stateId.toLowerCase();
+        // Check standard IDs
+        if (this.OPEN_STATE_IDS.includes(id)) return true;
+        // Handle user-created choices by checking if ID contains state name
+        return id.includes('next') || id.includes('progress');
+    }
+
+    // Convert label to ID for filtering
+    labelToId(label) {
+        return this.STATE_LABEL_TO_ID[label] || label.toLowerCase().replace(/ /g, '_');
+    }
+
+    // Check if record state matches target (handles both labels and IDs)
+    stateMatches(record, targetLabel) {
+        const stateId = record.prop('state')?.choice();
+        if (!stateId) return false;
+        const targetId = this.labelToId(targetLabel);
+        // Exact match on ID
+        if (stateId === targetId) return true;
+        // Fallback: check lowercase contains
+        return stateId.toLowerCase().includes(targetId.toLowerCase());
+    }
+
+    // Convert ID back to label for display
+    idToLabel(id, fieldType = 'state') {
+        if (!id) return null;
+        // Reverse lookup in the mapping
+        for (const [label, mappedId] of Object.entries(this.STATE_LABEL_TO_ID)) {
+            if (mappedId === id || id.toLowerCase() === mappedId) return label;
+        }
+        // For type field
+        const typeMap = { 'issue': 'Issue', 'pull_request': 'PR', 'task': 'Task', 'bug': 'Bug', 'feature': 'Feature' };
+        if (typeMap[id]) return typeMap[id];
+        // Fallback: capitalize
+        return id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, ' ');
+    }
+
     async onLoad() {
         // Wait for SyncHub to register tools
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
@@ -90,10 +144,15 @@ class Plugin extends CollectionPlugin {
         let results = records;
 
         if (args.state) {
-            results = results.filter(r => r.prop('state')?.choice() === args.state);
+            results = results.filter(r => this.stateMatches(r, args.state));
         }
         if (args.type) {
-            results = results.filter(r => r.prop('type')?.choice() === args.type);
+            // Type also uses choice() which returns ID
+            const typeId = args.type.toLowerCase().replace(/ /g, '_').replace('pr', 'pull_request');
+            results = results.filter(r => {
+                const recordTypeId = r.prop('type')?.choice();
+                return recordTypeId === typeId || recordTypeId?.toLowerCase() === args.type.toLowerCase();
+            });
         }
         if (args.repo) {
             const repoLower = args.repo.toLowerCase();
@@ -110,8 +169,8 @@ class Plugin extends CollectionPlugin {
         return results.map(r => ({
             guid: r.guid,
             title: r.getName(),
-            state: r.prop('state')?.choice(),
-            type: r.prop('type')?.choice(),
+            state: this.idToLabel(r.prop('state')?.choice(), 'state'),
+            type: this.idToLabel(r.prop('type')?.choice(), 'type'),
             repo: r.text('repo'),
             number: r.prop('number')?.number(),
             assignee: r.text('assignee')
@@ -136,8 +195,8 @@ class Plugin extends CollectionPlugin {
                 return {
                     guid: found.guid,
                     title: found.getName(),
-                    state: found.prop('state')?.choice(),
-                    type: found.prop('type')?.choice(),
+                    state: this.idToLabel(found.prop('state')?.choice(), 'state'),
+                    type: this.idToLabel(found.prop('type')?.choice(), 'type'),
                     repo: found.text('repo'),
                     number: found.prop('number')?.number(),
                     url: found.text('url')
@@ -151,8 +210,8 @@ class Plugin extends CollectionPlugin {
             return {
                 guid: found.guid,
                 title: found.getName(),
-                state: found.prop('state')?.choice(),
-                type: found.prop('type')?.choice(),
+                state: this.idToLabel(found.prop('state')?.choice(), 'state'),
+                type: this.idToLabel(found.prop('type')?.choice(), 'type'),
                 repo: found.text('repo'),
                 number: found.prop('number')?.number(),
                 url: found.text('url')
@@ -183,8 +242,8 @@ class Plugin extends CollectionPlugin {
         return results.map(r => ({
             guid: r.guid,
             title: r.getName(),
-            state: r.prop('state')?.choice(),
-            type: r.prop('type')?.choice(),
+            state: this.idToLabel(r.prop('state')?.choice(), 'state'),
+            type: this.idToLabel(r.prop('type')?.choice(), 'type'),
             repo: r.text('repo')
         }));
     }
@@ -195,28 +254,33 @@ class Plugin extends CollectionPlugin {
 
         const records = await collection.getAllRecords();
 
-        // Filter to open states
-        const openStates = ['Open', 'Next', 'In Progress'];
-        let results = records.filter(r => openStates.includes(r.prop('state')?.choice()));
+        // Filter to open states using ID matching (choice() returns ID not label)
+        let results = records.filter(r => this.isOpenState(r.prop('state')?.choice()));
 
         if (args.repo) {
             const repoLower = args.repo.toLowerCase();
             results = results.filter(r => r.text('repo')?.toLowerCase().includes(repoLower));
         }
         if (args.project) {
-            results = results.filter(r => r.prop('project')?.choice() === args.project);
+            // Project is also a choice field - compare IDs
+            const projectId = args.project.toLowerCase().replace(/ /g, '_');
+            results = results.filter(r => {
+                const recordProjectId = r.prop('project')?.choice();
+                return recordProjectId === projectId || recordProjectId?.toLowerCase().includes(args.project.toLowerCase());
+            });
         }
 
-        // Group by state
+        // Group by state (use labels for grouping keys)
         const byState = {};
         for (const r of results) {
-            const state = r.prop('state')?.choice() || 'Unknown';
-            if (!byState[state]) byState[state] = [];
-            byState[state].push({
+            const stateId = r.prop('state')?.choice();
+            const stateLabel = this.idToLabel(stateId, 'state') || 'Unknown';
+            if (!byState[stateLabel]) byState[stateLabel] = [];
+            byState[stateLabel].push({
                 guid: r.guid,
                 title: r.getName(),
                 repo: r.text('repo'),
-                type: r.prop('type')?.choice()
+                type: this.idToLabel(r.prop('type')?.choice(), 'type')
             });
         }
 
