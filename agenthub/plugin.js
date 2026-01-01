@@ -194,42 +194,27 @@ class Plugin extends CollectionPlugin {
         const blankItem = await agentRecord.createLineItem(null, lastItem, 'text');
         blankItem?.setSegments([]);
 
-        // Create streaming preview item (will be replaced with markdown)
-        const previewItem = await agentRecord.createLineItem(null, blankItem, 'text');
-        previewItem?.setSegments([
-            { type: 'bold', text: `${agent.name}: ` },
-            { type: 'text', text: '...' },
-        ]);
+        // Create label item for agent response
+        const labelItem = await agentRecord.createLineItem(null, blankItem, 'text');
+        labelItem?.setSegments([{ type: 'bold', text: `${agent.name}:` }]);
 
-        // Track the preview item guid so we can delete it later
-        const previewGuid = previewItem?.guid;
+        // Initialize streaming renderer
+        const renderer = this.createStreamingRenderer(agentRecord, labelItem);
+        await renderer.init();
 
-        // Call Anthropic API with streaming
+        // Call LLM API with streaming - progressively render as chunks arrive
         try {
-            const finalText = await this.callLLMStreaming(
+            await this.callLLMStreaming(
                 agent,
                 apiKey,
                 systemPrompt,
                 fullMessages,
-                (text) => {
-                    // Update preview with streaming text (show last 500 chars for long responses)
-                    const preview = text.length > 500 ? '...' + text.slice(-500) : text;
-                    previewItem?.setSegments([
-                        { type: 'bold', text: `${agent.name}: ` },
-                        { type: 'text', text: preview },
-                    ]);
-                }
+                (text) => renderer.update(text)
             );
 
-            // Convert preview to just a label
-            previewItem?.setSegments([
-                { type: 'bold', text: `${agent.name}:` },
-            ]);
-
-            // Insert properly formatted markdown AFTER the label
-            if (finalText && window.syncHub?.insertMarkdown) {
-                await window.syncHub.insertMarkdown(finalText, agentRecord, previewItem);
-            }
+            // Finalize rendering
+            const result = await renderer.finalize();
+            console.log('[AgentHub] Rendered:', result.rendered, 'items');
 
             // Update stats and set status back to Idle
             await this.updateAgentStats(agentRecord, agent.name);
@@ -239,8 +224,9 @@ class Plugin extends CollectionPlugin {
             console.error('[AgentHub] API error:', e);
             agentRecord.prop('status')?.setChoice('error');
             agentRecord.prop('last_error')?.set(e.message);
-            previewItem?.setSegments([
-                { type: 'bold', text: `${agent.name}: ` },
+
+            // Show error in preview
+            renderer.previewItem?.setSegments([
                 { type: 'text', text: `Error: ${e.message}` },
             ]);
         }
@@ -621,169 +607,143 @@ class Plugin extends CollectionPlugin {
     }
 
     // =========================================================================
-    // Progressive Markdown Renderer
+    // Progressive Streaming Renderer
+    // Uses promise chaining for non-blocking rendering during LLM streaming.
     // =========================================================================
 
-    createProgressiveRenderer(record, labelItem) {
+    createStreamingRenderer(record, labelItem) {
         const self = this;
+
         return {
-            record,
-            labelItem,
-            lastItem: labelItem,
-            renderedLength: 0,
+            record, labelItem,
+            previewItem: null,
+            processedLength: 0,
+            buffer: '',
             inCodeBlock: false,
             codeBlockLang: '',
-            currentCodeBlock: null,
-            lastCodeLineItem: null,
-            typingItem: null,
+            renderedCount: 0,
+            lastItemPromise: null,
 
-            async update(fullText) {
-                const newContent = fullText.slice(this.renderedLength);
-                if (!newContent) return;
-
-                // Split into lines
-                const lines = newContent.split('\n');
-                const completeLines = lines.slice(0, -1); // All but last
-                const partialLine = lines[lines.length - 1];
-
-                // Render complete lines
-                for (const line of completeLines) {
-                    await this.renderLine(line);
-                    this.renderedLength += line.length + 1; // +1 for \n
-                }
-
-                // Update typing indicator with partial line
-                await this.updateTypingIndicator(partialLine);
+            async init() {
+                this.lastItemPromise = Promise.resolve(this.labelItem);
+                this.previewItem = await this.record.createLineItem(null, this.labelItem, 'text');
             },
 
-            async renderLine(line) {
-                // Clear typing indicator since we're rendering a real line
-                if (this.typingItem) {
-                    this.typingItem.setSegments([]);
-                    this.typingItem = null;
-                }
+            update(fullText) {
+                const newText = fullText.slice(this.processedLength);
+                if (!newText) return;
 
-                // Handle code block markers
-                if (line.startsWith('```')) {
-                    if (!this.inCodeBlock) {
-                        // Starting code block
-                        this.inCodeBlock = true;
-                        this.codeBlockLang = line.slice(3).trim();
-                        this.currentCodeBlock = await this.record.createLineItem(
-                            this.labelItem, this.lastItem, 'block'
-                        );
-                        if (this.currentCodeBlock) {
-                            const lang = self.normalizeLanguage(this.codeBlockLang);
-                            try { this.currentCodeBlock.setHighlightLanguage?.(lang); } catch(e) {}
-                            this.currentCodeBlock.setSegments([]);
-                            this.lastItem = this.currentCodeBlock;
-                            this.lastCodeLineItem = null;
+                for (const char of newText) {
+                    this.buffer += char;
+                    this.processedLength++;
+
+                    if (this.inCodeBlock) {
+                        if (this.buffer.endsWith('\n```\n') ||
+                            (this.buffer.endsWith('\n```') && fullText.length === this.processedLength)) {
+                            const endMarker = this.buffer.endsWith('\n```\n') ? '\n```\n' : '\n```';
+                            this.renderCodeBlock(this.codeBlockLang, this.buffer.slice(0, -endMarker.length));
+                            this.buffer = '';
+                            this.inCodeBlock = false;
+                            this.codeBlockLang = '';
                         }
-                    } else {
-                        // Ending code block
-                        this.inCodeBlock = false;
-                        this.currentCodeBlock = null;
-                        this.lastCodeLineItem = null;
-                    }
-                    return;
-                }
+                    } else if (char === '\n') {
+                        const line = this.buffer.slice(0, -1);
+                        const fenceMatch = line.match(/^(\s*)```(.*)$/);
 
-                if (this.inCodeBlock && this.currentCodeBlock) {
-                    // Add line inside code block
-                    const codeLine = await this.record.createLineItem(
-                        this.currentCodeBlock, this.lastCodeLineItem, 'text'
-                    );
-                    if (codeLine) {
-                        codeLine.setSegments([{ type: 'text', text: line }]);
-                        this.lastCodeLineItem = codeLine;
+                        if (fenceMatch) {
+                            this.inCodeBlock = true;
+                            this.codeBlockLang = fenceMatch[2].trim();
+                            this.buffer = '';
+                        } else if (line.trim()) {
+                            this.renderLine(line);
+                            this.buffer = '';
+                        } else {
+                            this.buffer = '';
+                        }
                     }
-                } else if (line.trim()) {
-                    // Regular line - parse inline formatting
-                    const item = await this.record.createLineItem(
-                        this.labelItem, this.lastItem, this.getLineType(line)
-                    );
-                    if (item) {
-                        const { type, segments } = this.parseLine(line);
-                        item.setSegments(segments);
-                        this.lastItem = item;
-                    }
+
+                    this.updatePreview();
                 }
             },
 
-            async updateTypingIndicator(text) {
-                // Don't show empty typing indicator
-                if (!text && !this.inCodeBlock) {
-                    if (this.typingItem) {
-                        this.typingItem.setSegments([]);
+            renderLine(line) {
+                const parsed = window.syncHub?.parseLine?.(line);
+                if (!parsed?.segments?.length) return;
+
+                const { type, segments, level } = parsed;
+                const renderer = this;
+
+                this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
+                    try {
+                        const item = await renderer.record.createLineItem(null, lastItem, type);
+                        if (item) {
+                            if (type === 'heading' && level > 1) {
+                                try { item.setHeadingSize?.(level); } catch(e) {}
+                            }
+                            item.setSegments(segments);
+                            renderer.renderedCount++;
+                            return item;
+                        }
+                        return lastItem;
+                    } catch (e) {
+                        return lastItem;
                     }
-                    return;
-                }
+                });
+            },
 
-                // Create typing indicator if needed
-                if (!this.typingItem) {
-                    const parent = this.inCodeBlock ? this.currentCodeBlock : this.labelItem;
-                    const after = this.inCodeBlock ? this.lastCodeLineItem : this.lastItem;
-                    this.typingItem = await this.record.createLineItem(parent, after, 'text');
-                }
+            renderCodeBlock(lang, content) {
+                const lines = content.split('\n');
+                const renderer = this;
 
-                if (this.typingItem) {
-                    const display = this.inCodeBlock ? text : text;
-                    this.typingItem.setSegments([
-                        { type: 'text', text: display },
-                        { type: 'code', text: '█' }, // Cursor
+                this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
+                    try {
+                        const block = await renderer.record.createLineItem(null, lastItem, 'block');
+                        if (!block) return lastItem;
+
+                        try { block.setHighlightLanguage?.(self.normalizeLanguage(lang)); } catch(e) {}
+                        block.setSegments([]);
+
+                        let prev = null;
+                        for (const codeLine of lines) {
+                            const li = await renderer.record.createLineItem(block, prev, 'text');
+                            if (li) { li.setSegments([{ type: 'text', text: codeLine }]); prev = li; }
+                        }
+
+                        renderer.renderedCount++;
+                        return block;
+                    } catch (e) {
+                        return lastItem;
+                    }
+                });
+            },
+
+            updatePreview() {
+                if (!this.previewItem) return;
+                try {
+                    const display = this.buffer || '';
+                    this.previewItem.setSegments([
+                        ...(display ? [{ type: this.inCodeBlock ? 'code' : 'text', text: display }] : []),
+                        { type: 'code', text: '█' }
                     ]);
-                }
+                } catch (e) {}
             },
 
-            async finalize(fullText) {
-                // Render any remaining content
-                const remaining = fullText.slice(this.renderedLength);
-                if (remaining.trim()) {
-                    await this.renderLine(remaining);
+            async finalize() {
+                if (this.buffer.trim()) {
+                    if (this.inCodeBlock) {
+                        this.renderCodeBlock(this.codeBlockLang, this.buffer);
+                    } else {
+                        this.renderLine(this.buffer);
+                    }
                 }
-                // Clear typing indicator
-                if (this.typingItem) {
-                    this.typingItem.setSegments([]);
-                }
-            },
 
-            getLineType(line) {
-                if (line.match(/^#{1,6}\s/)) return 'heading';
-                if (line.match(/^[-*]\s+\[[ x]\]/i)) return 'task';
-                if (line.match(/^[-*]\s/)) return 'ulist';
-                if (line.match(/^\d+\.\s/)) return 'olist';
-                if (line.startsWith('> ')) return 'quote';
-                return 'text';
-            },
+                await this.lastItemPromise;
 
-            parseLine(line) {
-                // Strip markdown prefixes and parse inline formatting
-                let text = line;
-                let type = 'text';
+                try {
+                    this.previewItem?.setSegments([]);
+                } catch (e) {}
 
-                // Headers
-                const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
-                if (headerMatch) {
-                    text = headerMatch[2];
-                    type = 'heading';
-                }
-                // Lists
-                const ulMatch = line.match(/^[-*]\s+(.+)$/);
-                if (ulMatch) text = ulMatch[1];
-                const olMatch = line.match(/^\d+\.\s+(.+)$/);
-                if (olMatch) text = olMatch[1];
-                // Task
-                const taskMatch = line.match(/^[-*]\s+\[[ x]\]\s+(.+)$/i);
-                if (taskMatch) text = taskMatch[1];
-                // Quote
-                if (line.startsWith('> ')) text = line.slice(2);
-
-                // Parse inline formatting
-                const segments = window.syncHub?.parseInlineFormatting
-                    ? window.syncHub.parseInlineFormatting(text)
-                    : [{ type: 'text', text }];
-
-                return { type, segments };
+                return { rendered: this.renderedCount };
             },
         };
     }

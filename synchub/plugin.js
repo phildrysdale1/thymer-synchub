@@ -10,6 +10,9 @@
  * - State stored in Thymer, not IndexedDB
  */
 
+// Markdown config
+const BLANK_LINE_BEFORE_HEADINGS = true;
+
 class Plugin extends CollectionPlugin {
 
     async onLoad() {
@@ -29,8 +32,8 @@ class Plugin extends CollectionPlugin {
             requestSync: (pluginId) => this.requestSync(pluginId),
             getStatus: (pluginId) => this.getPluginStatus(pluginId),
             // Markdown utilities
-            insertMarkdown: (markdown, record, parentItem) => this.insertMarkdown(markdown, record, parentItem),
-            parseMarkdown: (markdown) => this.parseMarkdown(markdown),
+            insertMarkdown: (markdown, record, afterItem) => this.insertMarkdown(markdown, record, afterItem),
+            parseLine: (line) => this.parseLine(line),
             parseInlineFormatting: (text) => this.parseInlineFormatting(text),
             // DateTime & formatting utilities
             setLastRun: (record) => this.setLastRun(record),
@@ -602,196 +605,131 @@ class Plugin extends CollectionPlugin {
     // Markdown Utilities (shared via window.syncHub)
     // =========================================================================
 
-    async insertMarkdown(markdown, targetRecord, parentItem = null) {
-        const record = targetRecord;
-
-        if (!record) {
+    /**
+     * Insert markdown into a record using promise chaining (non-blocking).
+     * Flat structure - Thymer's heading folding provides hierarchy.
+     */
+    async insertMarkdown(markdown, targetRecord, afterItem = null) {
+        if (!targetRecord) {
             this.log('insertMarkdown: No target record provided', 'error');
-            return;
+            return 0;
         }
 
-        const blocks = this.parseMarkdown(markdown);
-
-        // Find the last item to append after
-        const existingItems = await record.getLineItems();
-        const containerGuid = parentItem ? parentItem.guid : record.guid;
-        const siblingItems = existingItems.filter(item => item.parent_guid === containerGuid);
-        let lastItem = siblingItems.length > 0 ? siblingItems[siblingItems.length - 1] : null;
-
-        // Hierarchical nesting based on heading levels
-        let parentStack = [{ item: parentItem, afterItem: lastItem, level: 0 }];
+        const record = targetRecord;
+        const self = this;
+        let promise = Promise.resolve(afterItem);
+        let rendered = 0;
+        let inCode = false, codeLang = '', codeLines = [];
         let isFirstBlock = true;
 
-        for (let i = 0; i < blocks.length; i++) {
-            const block = blocks[i];
-            const isHeading = block.type === 'heading';
-            const headingLevel = isHeading ? (block.mp?.hsize || 1) : 0;
-
-            try {
-                let newItem;
-                if (isHeading) {
-                    // Pop stack back to parent level
-                    while (parentStack.length > 1 && parentStack[parentStack.length - 1].level >= headingLevel) {
-                        parentStack.pop();
-                    }
-
-                    const parent = parentStack[parentStack.length - 1];
-
-                    // Add blank line before headings (except first block)
-                    if (!isFirstBlock) {
-                        const blankItem = await record.createLineItem(parent.item, parent.afterItem, 'text');
-                        if (blankItem) {
-                            blankItem.setSegments([]);
-                            parent.afterItem = blankItem;
+        for (const line of markdown.split('\n')) {
+            // Code fence (handles indented fences)
+            const fenceMatch = line.match(/^(\s*)```(.*)$/);
+            if (fenceMatch) {
+                if (inCode) {
+                    const lang = codeLang, code = [...codeLines];
+                    promise = promise.then(async (last) => {
+                        const block = await record.createLineItem(null, last, 'block');
+                        if (!block) return last;
+                        try { block.setHighlightLanguage?.(self.normalizeLanguage(lang)); } catch(e) {}
+                        block.setSegments([]);
+                        let prev = null;
+                        for (const cl of code) {
+                            const li = await record.createLineItem(block, prev, 'text');
+                            if (li) { li.setSegments([{type:'text',text:cl}]); prev = li; }
                         }
-                    }
-
-                    newItem = await record.createLineItem(parent.item, parent.afterItem, block.type);
-
-                    if (newItem) {
-                        parent.afterItem = newItem;
-                        if (headingLevel > 1 && typeof newItem.setHeadingSize === 'function') {
-                            try { newItem.setHeadingSize(headingLevel); } catch (e) {}
-                        }
-                        newItem.setSegments(block.segments || []);
-                        parentStack.push({ item: newItem, afterItem: null, level: headingLevel });
-                    }
-                } else {
-                    const parent = parentStack[parentStack.length - 1];
-                    newItem = await record.createLineItem(parent.item, parent.afterItem, block.type);
-
-                    if (newItem) {
-                        parent.afterItem = newItem;
-                    }
-                }
-
-                if (newItem) {
-                    if (block.mp) {
-                        newItem._item.mp = block.mp;
-                    }
-
-                    // For code blocks, create child text items for each line
-                    if (block.type === 'block' && block.codeLines) {
-                        const lang = this.normalizeLanguage(block.mp?.language);
-                        if (lang && typeof newItem.setHighlightLanguage === 'function') {
-                            try { newItem.setHighlightLanguage(lang); } catch (e) {}
-                        }
-                        newItem.setSegments([]);
-
-                        let codeLastChild = null;
-                        for (const line of block.codeLines) {
-                            const childItem = await record.createLineItem(newItem, codeLastChild, 'text');
-                            if (childItem) {
-                                childItem.setSegments([{ type: 'text', text: line }]);
-                                codeLastChild = childItem;
-                            }
-                        }
-                    } else if (!isHeading && block.segments && block.segments.length > 0) {
-                        newItem.setSegments(block.segments);
-                    } else if (!isHeading && block.mp) {
-                        newItem.setSegments([]);
-                    }
-
+                        rendered++;
+                        return block;
+                    });
                     isFirstBlock = false;
-                }
-            } catch (e) {
-                console.error('Failed to create line item:', e);
-            }
-        }
-
-        return blocks.length;
-    }
-
-    parseMarkdown(markdown) {
-        const lines = markdown.split('\n');
-        const blocks = [];
-        let inCodeBlock = false;
-        let codeLines = [];
-        let codeLanguage = '';
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            if (line.startsWith('```')) {
-                if (!inCodeBlock) {
-                    inCodeBlock = true;
-                    codeLanguage = line.slice(3).trim();
-                    codeLines = [];
+                    inCode = false; codeLang = ''; codeLines = [];
                 } else {
-                    inCodeBlock = false;
-                    if (codeLines.length > 0) {
-                        blocks.push({
-                            type: 'block',
-                            mp: { language: codeLanguage || 'plaintext' },
-                            codeLines: codeLines
-                        });
-                    }
-                    codeLines = [];
-                    codeLanguage = '';
+                    inCode = true;
+                    codeLang = fenceMatch[2].trim();
                 }
                 continue;
             }
 
-            if (inCodeBlock) {
-                codeLines.push(line);
-                continue;
-            }
+            if (inCode) { codeLines.push(line); continue; }
+            if (!line.trim()) continue;
 
             const parsed = this.parseLine(line);
-            if (parsed) {
-                blocks.push(parsed);
-            }
-        }
+            if (!parsed) continue;
 
-        // Handle unclosed code block
-        if (inCodeBlock && codeLines.length > 0) {
-            blocks.push({
-                type: 'block',
-                mp: { language: codeLanguage || 'plaintext' },
-                codeLines: codeLines
+            const { type, segments, level } = parsed;
+            const isHeading = type === 'heading';
+            const needsBlankLine = BLANK_LINE_BEFORE_HEADINGS && isHeading && !isFirstBlock;
+
+            promise = promise.then(async (last) => {
+                let insertAfter = last;
+
+                // Add blank line before headings (except first block)
+                if (needsBlankLine) {
+                    const blank = await record.createLineItem(null, insertAfter, 'text');
+                    if (blank) {
+                        blank.setSegments([]);
+                        insertAfter = blank;
+                    }
+                }
+
+                const item = await record.createLineItem(null, insertAfter, type);
+                if (!item) return last;
+
+                // Set heading size for h2-h6
+                if (isHeading && level > 1) {
+                    try { item.setHeadingSize?.(level); } catch(e) {}
+                }
+
+                item.setSegments(segments);
+                rendered++;
+                return item;
             });
+
+            isFirstBlock = false;
         }
 
-        return blocks;
+        await promise;
+        return rendered;
     }
 
+    /**
+     * Parse a single line of markdown into type + segments.
+     * Returns { type, segments, level? } or null for empty lines.
+     */
     parseLine(line) {
-        if (!line.trim()) {
-            return null;
-        }
+        if (!line.trim()) return null;
 
         // Horizontal rule
         if (/^(\*\s*\*\s*\*|\-\s*\-\s*\-|_\s*_\s*_)[\s\*\-_]*$/.test(line.trim())) {
             return { type: 'br', segments: [] };
         }
 
-        // Headings
-        const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-        if (headingMatch) {
-            const level = headingMatch[1].length;
+        // Headings (returns level for setHeadingSize)
+        const hMatch = line.match(/^(#{1,6})\s+(.+)$/);
+        if (hMatch) {
             return {
                 type: 'heading',
-                mp: { hsize: level },
-                segments: this.parseInlineFormatting(headingMatch[2])
+                level: hMatch[1].length,
+                segments: this.parseInlineFormatting(hMatch[2])
             };
         }
 
         // Task list
-        const taskMatch = line.match(/^[\-\*]\s+\[([ xX])\]\s+(.+)$/);
+        const taskMatch = line.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.+)$/);
         if (taskMatch) {
-            return { type: 'task', segments: this.parseInlineFormatting(taskMatch[2]) };
+            return { type: 'task', segments: this.parseInlineFormatting(taskMatch[3]) };
         }
 
-        // Unordered list
-        const ulMatch = line.match(/^[\-\*]\s+(.+)$/);
+        // Unordered list (handles indented items)
+        const ulMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
         if (ulMatch) {
-            return { type: 'ulist', segments: this.parseInlineFormatting(ulMatch[1]) };
+            return { type: 'ulist', segments: this.parseInlineFormatting(ulMatch[2]) };
         }
 
-        // Ordered list
-        const olMatch = line.match(/^\d+\.\s+(.+)$/);
+        // Ordered list (handles indented items)
+        const olMatch = line.match(/^(\s*)\d+\.\s+(.+)$/);
         if (olMatch) {
-            return { type: 'olist', segments: this.parseInlineFormatting(olMatch[1]) };
+            return { type: 'olist', segments: this.parseInlineFormatting(olMatch[2]) };
         }
 
         // Quote
@@ -803,6 +741,10 @@ class Plugin extends CollectionPlugin {
         return { type: 'text', segments: this.parseInlineFormatting(line) };
     }
 
+    /**
+     * Parse inline formatting (bold, italic, code, links).
+     * Exposed via window.syncHub for other plugins.
+     */
     parseInlineFormatting(text) {
         const segments = [];
         const patterns = [
