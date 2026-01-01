@@ -259,7 +259,7 @@ class Plugin extends AppPlugin {
 
             const isPR = !!issue.pull_request;
             const isMerged = isPR && issue.pull_request?.merged_at;
-            const newState = issue.state === 'open' ? 'Open' : 'Closed';
+            const githubState = issue.state; // 'open' or 'closed'
 
             const issueData = {
                 external_id: externalId,
@@ -269,7 +269,7 @@ class Plugin extends AppPlugin {
                 project: project,
                 number: issue.number,
                 type: isPR ? 'PR' : 'Issue',
-                state: newState,
+                // state computed below based on context
                 author: issue.user?.login || '',
                 assignee: issue.assignee?.login || '',
                 url: issue.html_url,
@@ -282,9 +282,35 @@ class Plugin extends AppPlugin {
                 // Check if needs update
                 const currentUpdatedAt = existingRecord.text('updated_at');
                 if (currentUpdatedAt !== issue.updated_at) {
-                    // Detect state change for verb
                     const oldState = existingRecord.prop('state')?.choice();
-                    const stateChanged = oldState !== newState;
+
+                    // Smart state handling:
+                    // - GitHub closed → always set to Closed (unless user set Cancelled)
+                    // - GitHub open → only change if was Closed (reopened), preserve Next/In Progress
+                    const closedStates = ['Closed', 'Cancelled'];
+                    const openStates = ['Open', 'Next', 'In Progress'];
+
+                    let newState = null;
+                    let stateChanged = false;
+
+                    if (githubState === 'closed') {
+                        // Only update to Closed if not already in a closed state
+                        if (!closedStates.includes(oldState)) {
+                            newState = 'Closed';
+                            stateChanged = true;
+                        }
+                    } else {
+                        // GitHub is open - only change if currently closed (reopened)
+                        if (closedStates.includes(oldState)) {
+                            newState = 'Open';
+                            stateChanged = true;
+                        }
+                        // Otherwise preserve user's workflow state (Next, In Progress)
+                    }
+
+                    if (newState) {
+                        issueData.state = newState;
+                    }
 
                     let verb, major;
                     if (stateChanged) {
@@ -295,7 +321,7 @@ class Plugin extends AppPlugin {
                         major = false;  // Just edits are minor
                     }
 
-                    this.updateRecord(existingRecord, issueData);
+                    await this.updateRecord(existingRecord, issueData);
                     updated++;
                     debug(`Updated: ${issue.title}`);
 
@@ -307,12 +333,16 @@ class Plugin extends AppPlugin {
                     });
                 }
             } else {
+                // New record - set initial state from GitHub
+                const initialState = githubState === 'open' ? 'Open' : 'Closed';
+                issueData.state = initialState;
+
                 const record = await this.createRecord(issuesCollection, data, issueData);
                 created++;
                 debug(`Created: ${issue.title}`);
 
                 if (record) {
-                    const verb = this.stateToVerb(newState, isMerged);
+                    const verb = this.stateToVerb(initialState, isMerged);
                     changes.push({
                         verb,
                         title: issue.title,
@@ -360,8 +390,36 @@ class Plugin extends AppPlugin {
         return record;
     }
 
-    updateRecord(record, issueData) {
+    async updateRecord(record, issueData) {
         this.setRecordFields(record, issueData);
+
+        // Update body content - clear existing and re-insert
+        if (issueData.body && window.syncHub?.insertMarkdown) {
+            await this.clearAndReplaceContent(record, issueData.body);
+        }
+    }
+
+    async clearAndReplaceContent(record, newContent) {
+        try {
+            const existingItems = await record.getLineItems();
+
+            // Delete all existing line items
+            for (const item of existingItems) {
+                try {
+                    await item.delete();
+                } catch (e) {
+                    // Some items might not be deletable, continue
+                }
+            }
+
+            // Small delay for sync
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Insert new content
+            await window.syncHub.insertMarkdown(newContent, record, null);
+        } catch (e) {
+            console.error('[GitHub] Error replacing content:', e);
+        }
     }
 
     setRecordFields(record, data) {
@@ -373,7 +431,9 @@ class Plugin extends AppPlugin {
         }
         this.setField(record, 'number', data.number);
         this.setField(record, 'type', data.type);
-        this.setField(record, 'state', data.state);
+        if (data.state) {
+            this.setField(record, 'state', data.state);
+        }
         this.setField(record, 'author', data.author);
         this.setField(record, 'assignee', data.assignee);
         this.setField(record, 'url', data.url);
