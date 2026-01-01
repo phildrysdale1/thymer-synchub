@@ -31,6 +31,14 @@ class Plugin extends CollectionPlugin {
             // Markdown utilities
             insertMarkdown: (markdown, record, parentItem) => this.insertMarkdown(markdown, record, parentItem),
             parseMarkdown: (markdown) => this.parseMarkdown(markdown),
+            parseInlineFormatting: (text) => this.parseInlineFormatting(text),
+            // DateTime & formatting utilities
+            setLastRun: (record) => this.setLastRun(record),
+            formatTimestamp: () => this.formatTimestamp(),
+            formatRelativeTime: (date) => this.formatRelativeTime(date),
+            // Journal integration
+            getTodayJournal: () => this.getTodayJournalRecord(),
+            logToJournal: (changes, level) => this.writeChangesToJournal(changes, level),
         };
 
         // Track registered sync functions (MUST be before event dispatch!)

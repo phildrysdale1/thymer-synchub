@@ -1,0 +1,266 @@
+{
+  "ver": 1,
+  "name": "AgentHub",
+  "icon": "ti-robot",
+  "home": false,
+  "page_field_ids": ["title", "command", "enabled", "provider", "model", "last_run"],
+  "item_name": "Agent",
+  "description": "AI agents that live in your Thymer space",
+  "show_sidebar_items": true,
+  "show_cmdpal_items": true,
+  "fields": [
+    {
+      "icon": "ti-abc",
+      "id": "title",
+      "label": "Name",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-at",
+      "id": "command",
+      "label": "Command",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-check",
+      "id": "enabled",
+      "label": "Enabled",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "yes",
+          "label": "Yes",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "no",
+          "label": "No",
+          "color": "9",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-cloud",
+      "id": "provider",
+      "label": "Provider",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "anthropic",
+          "label": "Anthropic",
+          "color": "9",
+          "active": true
+        },
+        {
+          "id": "openai",
+          "label": "OpenAI",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "ollama",
+          "label": "Ollama",
+          "color": "11",
+          "active": true
+        },
+        {
+          "id": "custom",
+          "label": "Custom",
+          "color": "4",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-cpu",
+      "id": "model",
+      "label": "Model",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "sonnet",
+          "label": "Claude Sonnet",
+          "color": "9",
+          "active": true
+        },
+        {
+          "id": "haiku",
+          "label": "Claude Haiku",
+          "color": "11",
+          "active": true
+        },
+        {
+          "id": "opus",
+          "label": "Claude Opus",
+          "color": "4",
+          "active": true
+        },
+        {
+          "id": "gpt-4o",
+          "label": "GPT-4o",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "gpt-4o-mini",
+          "label": "GPT-4o Mini",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "custom",
+          "label": "Custom",
+          "color": "4",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-code",
+      "id": "custom_model",
+      "label": "Custom Model",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-link",
+      "id": "custom_endpoint",
+      "label": "Custom Endpoint",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-activity",
+      "id": "status",
+      "label": "Status",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "idle",
+          "label": "Idle",
+          "color": "2",
+          "active": true
+        },
+        {
+          "id": "thinking",
+          "label": "Thinking",
+          "color": "3",
+          "active": true
+        },
+        {
+          "id": "error",
+          "label": "Error",
+          "color": "5",
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-key",
+      "id": "token",
+      "label": "API Key",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-run",
+      "id": "last_run",
+      "label": "Last Run",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "datetime"
+    },
+    {
+      "icon": "ti-hash",
+      "id": "invocations",
+      "label": "Invocations",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "number"
+    },
+    {
+      "icon": "ti-alert-triangle",
+      "id": "last_error",
+      "label": "Last Error",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-photo",
+      "id": "banner",
+      "label": "Banner",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "banner"
+    }
+  ],
+  "sidebar_record_sort_dir": "asc",
+  "sidebar_record_sort_field_id": "title",
+  "managed": {
+    "fields": false,
+    "views": false,
+    "sidebar": false
+  },
+  "custom": {},
+  "views": [
+    {
+      "id": "VAGENT001",
+      "shown": true,
+      "icon": "",
+      "label": "All Agents",
+      "description": "",
+      "field_ids": ["title", "command", "enabled", "provider", "model", "status", "last_run", "invocations"],
+      "type": "table",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "asc",
+      "sort_field_id": "title",
+      "opts": {}
+    },
+    {
+      "id": "VAGENT002",
+      "shown": true,
+      "icon": "",
+      "label": "By Status",
+      "description": "",
+      "field_ids": ["title", "command", "model", "enabled"],
+      "type": "board",
+      "read_only": false,
+      "group_by_field_id": "status",
+      "sort_dir": "asc",
+      "sort_field_id": "title",
+      "opts": {}
+    }
+  ]
+}
