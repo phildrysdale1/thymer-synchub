@@ -133,8 +133,8 @@ That's all for now!`;
             streamed += chunk;
             i += chunkSize;
 
-            // Update renderer
-            await renderer.update(streamed);
+            // Update renderer (non-blocking - just chains promises)
+            renderer.update(streamed);
 
             // Variable delay (20-80ms, like real streaming)
             const delay = 20 + Math.random() * 60;
@@ -171,15 +171,15 @@ That's all for now!`;
             codeBlockLines: [],
 
             renderedCount: 0,
-            lastRenderedItem: null,  // Track last item for ordering
+            lastItemPromise: null,  // Promise chain for ordering
 
             async init() {
                 console.log('[Renderer] Initializing...');
 
-                // Track where to insert next item (starts after label)
-                this.lastRenderedItem = this.labelItem;
+                // Start promise chain with the label item
+                this.lastItemPromise = Promise.resolve(this.labelItem);
 
-                // Create preview item - will be moved as we render
+                // Create preview item
                 this.previewItem = await this.record.createLineItem(
                     null, this.labelItem, 'text'
                 );
@@ -189,7 +189,7 @@ That's all for now!`;
                 this.previewChild = this.previewItem;
             },
 
-            async update(fullText) {
+            update(fullText) {
                 const newText = fullText.slice(this.processedLength);
                 if (!newText) return;
 
@@ -212,7 +212,7 @@ That's all for now!`;
                                 lines: content.split('\n').length
                             });
 
-                            await this.renderCodeBlock(this.codeBlockLang, content);
+                            this.renderCodeBlock(this.codeBlockLang, content);  // No await - chains promise
                             this.buffer = '';
                             this.inCodeBlock = false;
                             this.codeBlockLang = '';
@@ -230,7 +230,7 @@ That's all for now!`;
                         } else if (line.trim()) {
                             // Regular line
                             console.log('[Renderer] Rendering line:', line.slice(0, 40) + (line.length > 40 ? '...' : ''));
-                            await this.renderLine(line);
+                            this.renderLine(line);  // No await - chains promise
                             this.buffer = '';
                         } else {
                             // Empty line - skip
@@ -243,68 +243,76 @@ That's all for now!`;
                 }
             },
 
-            async renderLine(line) {
+            renderLine(line) {
                 const { type, segments } = this.parseLine(line);
+                const rendererSelf = this;
 
                 console.log('[Renderer] Creating line item:', { type, segmentCount: segments.length });
 
-                try {
-                    // Create AFTER the last rendered item (maintains order)
-                    const item = await this.record.createLineItem(null, this.lastRenderedItem, type);
-                    if (item) {
-                        item.setSegments(segments);
-                        this.lastRenderedItem = item;  // Next item goes after this one
-                        this.renderedCount++;
-                        console.log('[Renderer] Line rendered #' + this.renderedCount, item.guid);
+                // Chain off the previous promise - non-blocking!
+                this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
+                    try {
+                        const item = await rendererSelf.record.createLineItem(null, lastItem, type);
+                        if (item) {
+                            item.setSegments(segments);
+                            rendererSelf.renderedCount++;
+                            console.log('[Renderer] Line rendered #' + rendererSelf.renderedCount, item.guid);
+                            return item;  // Pass to next in chain
+                        }
+                        return lastItem;  // Keep previous if failed
+                    } catch (e) {
+                        console.error('[Renderer] Failed to create line:', e);
+                        return lastItem;
                     }
-                } catch (e) {
-                    console.error('[Renderer] Failed to create line:', e);
-                }
+                });
             },
 
-            async renderCodeBlock(lang, content) {
+            renderCodeBlock(lang, content) {
                 const lines = content.split('\n');
+                const rendererSelf = this;
 
                 console.log('[Renderer] Creating code block:', { lang, lineCount: lines.length });
 
-                try {
-                    // Create block AFTER the last rendered item
-                    const blockItem = await this.record.createLineItem(null, this.lastRenderedItem, 'block');
-                    if (!blockItem) {
-                        console.error('[Renderer] Failed to create block item');
-                        return;
-                    }
-
-                    this.lastRenderedItem = blockItem;  // Next item goes after this block
-
-                    // Set language
-                    const normalizedLang = self.normalizeLanguage(lang);
+                // Chain off the previous promise
+                this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
                     try {
-                        blockItem.setHighlightLanguage?.(normalizedLang);
-                    } catch (e) {
-                        console.log('[Renderer] Could not set language:', e.message);
-                    }
-                    blockItem.setSegments([]);
-
-                    console.log('[Renderer] Block created:', blockItem.guid);
-
-                    // Add each line as child
-                    let lastLine = null;
-                    for (const codeLine of lines) {
-                        const lineItem = await this.record.createLineItem(
-                            blockItem, lastLine, 'text'
-                        );
-                        if (lineItem) {
-                            lineItem.setSegments([{ type: 'text', text: codeLine }]);
-                            lastLine = lineItem;
+                        const blockItem = await rendererSelf.record.createLineItem(null, lastItem, 'block');
+                        if (!blockItem) {
+                            console.error('[Renderer] Failed to create block item');
+                            return lastItem;
                         }
-                    }
 
-                    this.renderedCount++;
-                    console.log('[Renderer] Code block rendered #' + this.renderedCount);
-                } catch (e) {
-                    console.error('[Renderer] Failed to create block:', e);
-                }
+                        // Set language
+                        const normalizedLang = self.normalizeLanguage(lang);
+                        try {
+                            blockItem.setHighlightLanguage?.(normalizedLang);
+                        } catch (e) {
+                            console.log('[Renderer] Could not set language:', e.message);
+                        }
+                        blockItem.setSegments([]);
+
+                        console.log('[Renderer] Block created:', blockItem.guid);
+
+                        // Add each line as child (these can be sequential within the block)
+                        let lastLine = null;
+                        for (const codeLine of lines) {
+                            const lineItem = await rendererSelf.record.createLineItem(
+                                blockItem, lastLine, 'text'
+                            );
+                            if (lineItem) {
+                                lineItem.setSegments([{ type: 'text', text: codeLine }]);
+                                lastLine = lineItem;
+                            }
+                        }
+
+                        rendererSelf.renderedCount++;
+                        console.log('[Renderer] Code block rendered #' + rendererSelf.renderedCount);
+                        return blockItem;  // Pass to next in chain
+                    } catch (e) {
+                        console.error('[Renderer] Failed to create block:', e);
+                        return lastItem;
+                    }
+                });
             },
 
             updatePreview() {
@@ -333,12 +341,16 @@ That's all for now!`;
                     if (this.inCodeBlock) {
                         // Unclosed code block - render what we have
                         console.log('[Renderer] Rendering unclosed code block');
-                        await this.renderCodeBlock(this.codeBlockLang, this.buffer);
+                        this.renderCodeBlock(this.codeBlockLang, this.buffer);
                     } else {
                         console.log('[Renderer] Rendering remaining buffer:', this.buffer);
-                        await this.renderLine(this.buffer);
+                        this.renderLine(this.buffer);
                     }
                 }
+
+                // Wait for all pending renders to complete
+                await this.lastItemPromise;
+                console.log('[Renderer] All promises resolved');
 
                 // Show complete message
                 this.previewItem?.setSegments([
