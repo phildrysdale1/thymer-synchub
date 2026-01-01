@@ -171,6 +171,8 @@ That's all for now!`;
             codeBlockLines: [],
 
             renderedCount: 0,
+            errorCount: 0,
+            aborted: false,
             lastItemPromise: null,  // Promise chain for ordering
 
             async init() {
@@ -180,21 +182,45 @@ That's all for now!`;
                 this.lastItemPromise = Promise.resolve(this.labelItem);
 
                 // Create preview item
-                this.previewItem = await this.record.createLineItem(
-                    null, this.labelItem, 'text'
-                );
-                console.log('[Renderer] Preview item created:', this.previewItem?.guid);
+                try {
+                    this.previewItem = await this.record.createLineItem(
+                        null, this.labelItem, 'text'
+                    );
+                    console.log('[Renderer] Preview item created:', this.previewItem?.guid);
+                } catch (e) {
+                    console.error('[Renderer] Failed to create preview item:', e);
+                    // Continue without preview - not fatal
+                }
 
                 // Preview child is the preview item itself
                 this.previewChild = this.previewItem;
             },
 
+            // Call to stop rendering (e.g., user navigated away)
+            abort() {
+                this.aborted = true;
+                console.log('[Renderer] Aborted');
+                this.cleanup();
+            },
+
+            cleanup() {
+                // Clear preview item if it exists
+                try {
+                    this.previewItem?.setSegments([]);
+                } catch (e) {
+                    // Item might be gone, ignore
+                }
+            },
+
             update(fullText) {
+                if (this.aborted) return;
+
                 const newText = fullText.slice(this.processedLength);
                 if (!newText) return;
 
                 // Process character by character
                 for (const char of newText) {
+                    if (this.aborted) break;
                     this.buffer += char;
                     this.processedLength++;
 
@@ -244,13 +270,23 @@ That's all for now!`;
             },
 
             renderLine(line) {
+                if (this.aborted) return;
+
                 const { type, segments } = this.parseLine(line);
                 const rendererSelf = this;
+
+                // Validate segments
+                if (!segments || !Array.isArray(segments) || segments.length === 0) {
+                    console.warn('[Renderer] Invalid segments for line:', line.slice(0, 30));
+                    return;
+                }
 
                 console.log('[Renderer] Creating line item:', { type, segmentCount: segments.length });
 
                 // Chain off the previous promise - non-blocking!
                 this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
+                    if (rendererSelf.aborted) return lastItem;
+
                     try {
                         const item = await rendererSelf.record.createLineItem(null, lastItem, type);
                         if (item) {
@@ -259,8 +295,12 @@ That's all for now!`;
                             console.log('[Renderer] Line rendered #' + rendererSelf.renderedCount, item.guid);
                             return item;  // Pass to next in chain
                         }
-                        return lastItem;  // Keep previous if failed
+                        // createLineItem returned null
+                        rendererSelf.errorCount++;
+                        console.warn('[Renderer] createLineItem returned null');
+                        return lastItem;
                     } catch (e) {
+                        rendererSelf.errorCount++;
                         console.error('[Renderer] Failed to create line:', e);
                         return lastItem;
                     }
@@ -268,6 +308,8 @@ That's all for now!`;
             },
 
             renderCodeBlock(lang, content) {
+                if (this.aborted) return;
+
                 const lines = content.split('\n');
                 const rendererSelf = this;
 
@@ -275,9 +317,12 @@ That's all for now!`;
 
                 // Chain off the previous promise
                 this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
+                    if (rendererSelf.aborted) return lastItem;
+
                     try {
                         const blockItem = await rendererSelf.record.createLineItem(null, lastItem, 'block');
                         if (!blockItem) {
+                            rendererSelf.errorCount++;
                             console.error('[Renderer] Failed to create block item');
                             return lastItem;
                         }
@@ -287,7 +332,7 @@ That's all for now!`;
                         try {
                             blockItem.setHighlightLanguage?.(normalizedLang);
                         } catch (e) {
-                            console.log('[Renderer] Could not set language:', e.message);
+                            // Not fatal - just won't have syntax highlighting
                         }
                         blockItem.setSegments([]);
 
@@ -296,6 +341,8 @@ That's all for now!`;
                         // Add each line as child (these can be sequential within the block)
                         let lastLine = null;
                         for (const codeLine of lines) {
+                            if (rendererSelf.aborted) break;
+
                             const lineItem = await rendererSelf.record.createLineItem(
                                 blockItem, lastLine, 'text'
                             );
@@ -309,6 +356,7 @@ That's all for now!`;
                         console.log('[Renderer] Code block rendered #' + rendererSelf.renderedCount);
                         return blockItem;  // Pass to next in chain
                     } catch (e) {
+                        rendererSelf.errorCount++;
                         console.error('[Renderer] Failed to create block:', e);
                         return lastItem;
                     }
@@ -316,25 +364,34 @@ That's all for now!`;
             },
 
             updatePreview() {
-                if (!this.previewChild) return;
+                if (!this.previewChild || this.aborted) return;
 
-                const display = this.buffer || '';
-                const isCode = this.inCodeBlock;
+                try {
+                    const display = this.buffer || '';
+                    const isCode = this.inCodeBlock;
 
-                if (display) {
-                    this.previewChild.setSegments([
-                        { type: isCode ? 'code' : 'text', text: display },
-                        { type: 'code', text: '█' }
-                    ]);
-                } else {
-                    this.previewChild.setSegments([
-                        { type: 'code', text: '█' }
-                    ]);
+                    if (display) {
+                        this.previewChild.setSegments([
+                            { type: isCode ? 'code' : 'text', text: display },
+                            { type: 'code', text: '█' }
+                        ]);
+                    } else {
+                        this.previewChild.setSegments([
+                            { type: 'code', text: '█' }
+                        ]);
+                    }
+                } catch (e) {
+                    // Preview item might be gone, ignore
                 }
             },
 
             async finalize() {
                 console.log('[Renderer] Finalizing...');
+
+                if (this.aborted) {
+                    console.log('[Renderer] Finalize skipped - aborted');
+                    return { rendered: this.renderedCount, errors: this.errorCount, aborted: true };
+                }
 
                 // Render any remaining buffer
                 if (this.buffer.trim()) {
@@ -349,19 +406,36 @@ That's all for now!`;
                 }
 
                 // Wait for all pending renders to complete
-                await this.lastItemPromise;
-                console.log('[Renderer] All promises resolved');
+                try {
+                    await this.lastItemPromise;
+                    console.log('[Renderer] All promises resolved');
+                } catch (e) {
+                    console.error('[Renderer] Promise chain error:', e);
+                    this.errorCount++;
+                }
 
-                // Show complete message
-                this.previewItem?.setSegments([
-                    { type: 'text', text: '✓ Complete' }
-                ]);
+                // Show result
+                const hasErrors = this.errorCount > 0;
+                try {
+                    if (hasErrors) {
+                        this.previewItem?.setSegments([
+                            { type: 'text', text: `⚠ Done with ${this.errorCount} error(s)` }
+                        ]);
+                    } else {
+                        this.previewItem?.setSegments([
+                            { type: 'text', text: '✓ Complete' }
+                        ]);
+                    }
 
-                // Wait a moment then clear the preview entirely
-                await self.sleep(1000);
-                this.previewItem?.setSegments([]);
+                    // Wait a moment then clear the preview entirely
+                    await self.sleep(1000);
+                    this.previewItem?.setSegments([]);
+                } catch (e) {
+                    // Preview item might be gone, ignore
+                }
 
-                console.log('[Renderer] Finalized. Total rendered:', this.renderedCount);
+                console.log('[Renderer] Finalized. Rendered:', this.renderedCount, 'Errors:', this.errorCount);
+                return { rendered: this.renderedCount, errors: this.errorCount, aborted: false };
             },
 
             parseLine(line) {
