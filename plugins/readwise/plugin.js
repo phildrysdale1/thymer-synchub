@@ -365,9 +365,12 @@ class Plugin extends AppPlugin {
     }
 
     async updateHighlights(record, doc, highlights) {
-        // For updates, we'd need to clear and re-insert
-        // For now, just skip body updates on existing records
-        // TODO: Implement proper body replacement
+        if (!window.syncHub?.replaceContents) return;
+
+        const markdown = this.buildHighlightsMarkdown(doc, highlights);
+        if (markdown) {
+            await window.syncHub.replaceContents(markdown, record);
+        }
     }
 
     buildHighlightsMarkdown(doc, highlights) {

@@ -541,6 +541,11 @@ class Plugin extends AppPlugin {
 
     updateRecord(record, eventData) {
         this.setRecordFields(record, eventData);
+
+        // Update description via SyncHub
+        if (eventData.description && window.syncHub?.replaceContents) {
+            window.syncHub.replaceContents(eventData.description, record);
+        }
     }
 
     setRecordFields(record, data) {

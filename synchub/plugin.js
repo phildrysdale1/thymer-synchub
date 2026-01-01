@@ -33,6 +33,7 @@ class Plugin extends CollectionPlugin {
             getStatus: (pluginId) => this.getPluginStatus(pluginId),
             // Markdown utilities
             insertMarkdown: (markdown, record, afterItem) => this.insertMarkdown(markdown, record, afterItem),
+            replaceContents: (markdown, record) => this.replaceContents(markdown, record),
             parseLine: (line) => this.parseLine(line),
             parseInlineFormatting: (text) => this.parseInlineFormatting(text),
             // DateTime & formatting utilities
@@ -42,10 +43,17 @@ class Plugin extends CollectionPlugin {
             // Journal integration
             getTodayJournal: () => this.getTodayJournalRecord(),
             logToJournal: (changes, level) => this.writeChangesToJournal(changes, level),
+            // Agent tools - collections register semantic operations
+            registerCollectionTools: (config) => this.registerCollectionTools(config),
+            getRegisteredTools: () => this.getRegisteredTools(),
+            executeToolCall: (name, args) => this.executeToolCall(name, args),
         };
 
         // Track registered sync functions (MUST be before event dispatch!)
         this.syncFunctions = new Map();
+
+        // Track registered collection tools for agents
+        this.collectionTools = new Map();
 
         // Dispatch event so plugins can (re)register
         console.log('[SyncHub] Ready, dispatching synchub-ready event');
@@ -602,6 +610,322 @@ class Plugin extends CollectionPlugin {
     }
 
     // =========================================================================
+    // Agent Tools - Collection-registered semantic operations
+    // =========================================================================
+
+    /**
+     * Register tools for a collection.
+     * Collections call this to expose semantic operations to agents.
+     *
+     * @param {Object} config
+     * @param {string} config.collection - Collection name
+     * @param {string} config.description - Human-readable description
+     * @param {Object} config.schema - Field descriptions for the collection
+     * @param {Array} config.tools - Array of tool definitions
+     */
+    registerCollectionTools(config) {
+        const { collection, description, schema, tools } = config;
+
+        if (!collection || !tools) {
+            this.log('registerCollectionTools: missing collection or tools', 'error');
+            return;
+        }
+
+        // Store the collection config
+        this.collectionTools.set(collection, {
+            description: description || collection,
+            schema: schema || {},
+            tools: tools || []
+        });
+
+        console.log(`[SyncHub] Registered ${tools.length} tools for collection: ${collection}`);
+    }
+
+    /**
+     * Get all registered tools in OpenAI function calling format.
+     * AgentHub calls this to build the tools array for LLM calls.
+     */
+    getRegisteredTools() {
+        const allTools = [];
+
+        // Add core tools (search, journal, etc.)
+        allTools.push(...this.getCoreTools());
+
+        // Add collection-specific tools
+        for (const [collectionName, config] of this.collectionTools) {
+            for (const tool of config.tools) {
+                allTools.push({
+                    type: 'function',
+                    function: {
+                        name: `${collectionName.toLowerCase()}_${tool.name}`,
+                        description: `[${collectionName}] ${tool.description}`,
+                        parameters: this.buildParameters(tool.parameters)
+                    },
+                    _handler: tool.handler,
+                    _collection: collectionName
+                });
+            }
+        }
+
+        return allTools;
+    }
+
+    /**
+     * Execute a tool call by name.
+     * AgentHub calls this when the LLM invokes a tool.
+     */
+    async executeToolCall(name, args) {
+        console.log(`[SyncHub] Executing tool: ${name}`, args);
+
+        // Check core tools first
+        const coreResult = await this.executeCoreToolCall(name, args);
+        if (coreResult !== null) {
+            return coreResult;
+        }
+
+        // Find collection tool
+        for (const [collectionName, config] of this.collectionTools) {
+            const prefix = collectionName.toLowerCase() + '_';
+            if (name.startsWith(prefix)) {
+                const toolName = name.slice(prefix.length);
+                const tool = config.tools.find(t => t.name === toolName);
+                if (tool?.handler) {
+                    try {
+                        return await tool.handler(args, this.data, this.ui);
+                    } catch (e) {
+                        return { error: e.message };
+                    }
+                }
+            }
+        }
+
+        return { error: `Unknown tool: ${name}` };
+    }
+
+    /**
+     * Core tools available to all agents.
+     */
+    getCoreTools() {
+        return [
+            {
+                type: 'function',
+                function: {
+                    name: 'search_workspace',
+                    description: 'Search across all collections for relevant context. Use this to find information before answering questions.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            query: { type: 'string', description: 'Search query - keywords or phrases' },
+                            limit: { type: 'number', description: 'Max results (default: 5)' }
+                        },
+                        required: ['query']
+                    }
+                },
+                _core: true
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'list_collections',
+                    description: 'List all available collections and their schemas. Use this to understand what data is available.',
+                    parameters: { type: 'object', properties: {}, required: [] }
+                },
+                _core: true
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'get_active_record',
+                    description: 'Get the currently open record in Thymer, including its fields and body content.',
+                    parameters: { type: 'object', properties: {}, required: [] }
+                },
+                _core: true
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'write_to_active_record',
+                    description: 'Write markdown content to the currently active record.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            content: { type: 'string', description: 'Markdown content to write' },
+                            mode: { type: 'string', enum: ['replace', 'prepend', 'append'], description: 'Write mode (default: prepend)' }
+                        },
+                        required: ['content']
+                    }
+                },
+                _core: true
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'log_to_journal',
+                    description: 'Add an entry to today\'s journal.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            content: { type: 'string', description: 'Content to add' }
+                        },
+                        required: ['content']
+                    }
+                },
+                _core: true
+            }
+        ];
+    }
+
+    /**
+     * Execute core tool calls.
+     */
+    async executeCoreToolCall(name, args) {
+        switch (name) {
+            case 'search_workspace':
+                return this.toolSearchWorkspace(args);
+            case 'list_collections':
+                return this.toolListCollections();
+            case 'get_active_record':
+                return this.toolGetActiveRecord();
+            case 'write_to_active_record':
+                return this.toolWriteToActiveRecord(args);
+            case 'log_to_journal':
+                return this.toolLogToJournal(args);
+            default:
+                return null; // Not a core tool
+        }
+    }
+
+    async toolSearchWorkspace({ query, limit = 5 }) {
+        try {
+            const result = await this.data.searchByQuery(query, limit);
+            return {
+                query,
+                results: (result.records || []).map(r => ({
+                    guid: r.guid,
+                    title: r.getName?.() || 'Untitled',
+                    snippet: r.snippet || ''
+                }))
+            };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    toolListCollections() {
+        const collections = {};
+        for (const [name, config] of this.collectionTools) {
+            collections[name] = {
+                description: config.description,
+                schema: config.schema,
+                tools: config.tools.map(t => t.name)
+            };
+        }
+        return { collections };
+    }
+
+    async toolGetActiveRecord() {
+        try {
+            const record = this.ui.getActivePanel()?.getActiveRecord();
+            if (!record) {
+                return { error: 'No active record - open a document first' };
+            }
+
+            const props = record.getAllProperties?.() || [];
+            const fields = {};
+            for (const prop of props) {
+                const value = prop.choice?.() || prop.text?.() || prop.number?.() || null;
+                if (value) fields[prop.name || prop.id] = value;
+            }
+
+            const lineItems = await record.getLineItems?.() || [];
+            const body = lineItems
+                .filter(item => item.parent_guid === record.guid)
+                .map(item => item.segments?.map(s => {
+                    // Handle ref segments (they have object text with guid)
+                    if (s.type === 'ref' && typeof s.text === 'object') {
+                        return `[[${s.text.guid}]]`;  // Return as link syntax
+                    }
+                    return s.text || '';
+                }).join('') || '')
+                .join('\n');
+
+            return {
+                guid: record.guid,
+                title: record.getName?.() || 'Untitled',
+                fields,
+                body: body || '(empty)'
+            };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    async toolWriteToActiveRecord({ content, mode = 'prepend' }) {
+        try {
+            const record = this.ui.getActivePanel()?.getActiveRecord();
+            if (!record) {
+                return { error: 'No active record' };
+            }
+
+            if (mode === 'replace') {
+                await this.replaceContents(content, record);
+            } else {
+                // prepend or append - for now both use insertMarkdown
+                // TODO: implement actual prepend
+                await this.insertMarkdown(content, record, null);
+            }
+
+            return { success: true, mode };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    async toolLogToJournal({ content }) {
+        try {
+            const journal = await this.getTodayJournalRecord();
+            if (!journal) {
+                return { error: 'Journal not available' };
+            }
+            await this.insertMarkdown(content, journal, null);
+            return { success: true };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    /**
+     * Build OpenAI-compatible parameters object from simple schema.
+     * Supports:
+     *   - Simple: { field: 'string' } or { field: 'string?' } (optional)
+     *   - With enum: { field: { type: 'string', enum: ['a', 'b'] } }
+     *   - With description: { field: { type: 'string', description: '...' } }
+     */
+    buildParameters(params) {
+        if (!params) return { type: 'object', properties: {}, required: [] };
+
+        const properties = {};
+        const required = [];
+
+        for (const [key, value] of Object.entries(params)) {
+            if (typeof value === 'string') {
+                // Simple format: 'string' or 'string?'
+                const isRequired = !value.endsWith('?');
+                const cleanType = value.replace('?', '');
+                properties[key] = { type: cleanType };
+                if (isRequired) required.push(key);
+            } else if (typeof value === 'object') {
+                // Complex format with type, enum, description
+                properties[key] = { ...value };
+                // If no explicit optional marker, assume required
+                if (!value.optional) required.push(key);
+            }
+        }
+
+        return { type: 'object', properties, required };
+    }
+
+    // =========================================================================
     // Markdown Utilities (shared via window.syncHub)
     // =========================================================================
 
@@ -693,6 +1017,26 @@ class Plugin extends CollectionPlugin {
     }
 
     /**
+     * Replace all contents of a record with new markdown.
+     * TODO: When SDK exposes item.delete(), delete existing items first.
+     * For now, just inserts (causes duplicates on update).
+     */
+    async replaceContents(markdown, record) {
+        if (!record) {
+            this.log('replaceContents: No record provided', 'error');
+            return 0;
+        }
+
+        // TODO: Delete existing line items when API is available
+        // const existingItems = await record.getLineItems();
+        // for (const item of existingItems) {
+        //     await item.delete();
+        // }
+
+        return await this.insertMarkdown(markdown, record, null);
+    }
+
+    /**
      * Parse a single line of markdown into type + segments.
      * Returns { type, segments, level? } or null for empty lines.
      */
@@ -742,13 +1086,17 @@ class Plugin extends CollectionPlugin {
     }
 
     /**
-     * Parse inline formatting (bold, italic, code, links).
+     * Parse inline formatting (bold, italic, code, links, record refs).
      * Exposed via window.syncHub for other plugins.
+     *
+     * Special: [[GUID]] creates a clickable record reference in Thymer.
+     * Agents can use this to link to records they return from tool calls.
      */
     parseInlineFormatting(text) {
         const segments = [];
         const patterns = [
             { regex: /`([^`]+)`/, type: 'code' },
+            { regex: /\[\[([A-Za-z0-9-]{20,})\]\]/, type: 'ref' },  // [[GUID]] record reference
             { regex: /\[([^\]]+)\]\(([^)]+)\)/, type: 'link' },
             { regex: /\*\*([^*]+)\*\*/, type: 'bold' },
             { regex: /__([^_]+)__/, type: 'bold' },
@@ -778,7 +1126,11 @@ class Plugin extends CollectionPlugin {
                 }
 
                 if (matchedPattern.type === 'link') {
+                    // Links become plain text (Thymer doesn't support external links in segments)
                     segments.push({ type: 'text', text: earliestMatch[1] });
+                } else if (matchedPattern.type === 'ref') {
+                    // Record reference: [[GUID]] -> { type: 'ref', text: { guid: 'xxx' } }
+                    segments.push({ type: 'ref', text: { guid: earliestMatch[1] } });
                 } else {
                     segments.push({ type: matchedPattern.type, text: earliestMatch[1] });
                 }

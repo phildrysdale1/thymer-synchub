@@ -1,0 +1,73 @@
+{
+  "ver": 1,
+  "name": "Chats",
+  "icon": "ti-messages",
+  "home": false,
+  "page_field_ids": ["title", "agents", "created_at"],
+  "item_name": "Chat",
+  "description": "AI chat conversations with context",
+  "show_sidebar_items": true,
+  "show_cmdpal_items": true,
+  "fields": [
+    {
+      "icon": "ti-abc",
+      "id": "title",
+      "label": "Title",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-robot",
+      "id": "agents",
+      "label": "Agents",
+      "many": true,
+      "read_only": true,
+      "active": true,
+      "type": "text"
+    },
+    {
+      "icon": "ti-clock-plus",
+      "id": "created_at",
+      "label": "Created",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "datetime"
+    },
+    {
+      "icon": "ti-photo",
+      "id": "banner",
+      "label": "Banner",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "banner"
+    }
+  ],
+  "sidebar_record_sort_dir": "desc",
+  "sidebar_record_sort_field_id": "created_at",
+  "managed": {
+    "fields": false,
+    "views": false,
+    "sidebar": false
+  },
+  "custom": {},
+  "views": [
+    {
+      "id": "VCHATS001",
+      "shown": true,
+      "icon": "",
+      "label": "All Chats",
+      "description": "",
+      "field_ids": ["title", "agents", "created_at"],
+      "type": "table",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "desc",
+      "sort_field_id": "created_at",
+      "opts": {}
+    }
+  ]
+}

@@ -6,6 +6,20 @@
  * Links bring context into the conversation.
  */
 
+// Markdown config (consistent with SyncHub)
+const BLANK_LINE_BEFORE_HEADINGS = true;
+
+// System prompt - explains context format to the LLM
+const BASE_SYSTEM_PROMPT = `You are an AI assistant in Thymer, a personal workspace app.
+
+## Context
+- Linked records appear in "Linked Context" at the start - already resolved, no need to search
+- Your previous responses are marked with 🤖
+
+## Response Format
+- Use [[GUID]] to link to records - renders as the record's title, so don't repeat the title
+- Use markdown (headings, lists, bold, code)`;
+
 class Plugin extends CollectionPlugin {
 
     async onLoad() {
@@ -30,24 +44,17 @@ class Plugin extends CollectionPlugin {
 
         console.log('[AgentHub] Initializing' + (window.syncHub ? ' (SyncHub ready)' : ' (standalone)'));
 
-        // Load agents and register commands
+        // Load agents and register commands (reload page for config changes)
         await this.loadAgents();
-
-        // Watch for AgentHub changes
-        this.refreshInterval = setInterval(() => this.loadAgents(), 30000);
     }
 
     onUnload() {
-        // Clean up commands (safety check in case onLoad didn't complete)
+        // Clean up commands
         if (this.commands) {
             for (const cmd of this.commands) {
                 cmd.remove();
             }
             this.commands = [];
-        }
-
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
         }
     }
 
@@ -55,13 +62,13 @@ class Plugin extends CollectionPlugin {
     // Agent Loading
     // =========================================================================
 
-    async loadAgents() {
+    async loadAgents(quiet = false) {
         try {
             const collections = await this.data.getAllCollections();
             const agentHub = collections.find(c => c.getName() === 'AgentHub');
 
             if (!agentHub) {
-                console.log('[AgentHub] Collection not found');
+                if (!quiet) console.log('[AgentHub] Collection not found');
                 return;
             }
 
@@ -77,17 +84,16 @@ class Plugin extends CollectionPlugin {
             // Register each enabled agent
             for (const record of records) {
                 const enabled = record.prop('enabled')?.choice();
-                if (enabled !== 'yes') continue;  // choice() returns ID, not label
+                if (enabled !== 'yes') continue;
 
                 const name = record.getName();
                 const command = record.text('command') || `@${name.toLowerCase().replace(/\s+/g, '-')}`;
                 const provider = record.prop('provider')?.choice() || 'anthropic';
                 const model = record.prop('model')?.choice() || 'sonnet';
+                const systemPrompt = record.text('system_prompt') || '';
                 const customModel = record.text('custom_model');
                 const customEndpoint = record.text('custom_endpoint');
                 const token = record.text('token');
-
-                console.log(`[AgentHub] Registering agent: ${name}, provider: ${provider}, model: ${model}, token: ${token ? 'yes' : 'no'}`);
 
                 this.agents.set(record.guid, {
                     guid: record.guid,
@@ -95,6 +101,7 @@ class Plugin extends CollectionPlugin {
                     command,
                     provider,
                     model,
+                    systemPrompt,
                     customModel,
                     customEndpoint,
                     token,
@@ -107,8 +114,10 @@ class Plugin extends CollectionPlugin {
                     onSelected: () => this.openAgentChat(record.guid),
                 });
                 this.commands.push(cmd);
+            }
 
-                console.log(`[AgentHub] Registered: ${name} (${command})`);
+            if (!quiet) {
+                console.log(`[AgentHub] Loaded ${this.agents.size} agents`);
             }
         } catch (e) {
             console.error('[AgentHub] Failed to load agents:', e);
@@ -137,29 +146,49 @@ class Plugin extends CollectionPlugin {
         }
         console.log('[AgentHub] Found agent:', agent.name);
 
-        // Get the agent record
-        const collections = await this.data.getAllCollections();
-        const agentHub = collections.find(c => c.getName() === 'AgentHub');
-        const records = await agentHub.getAllRecords();
-        const agentRecord = records.find(r => r.guid === agentGuid);
-
-        if (!agentRecord) {
-            console.error('[AgentHub] Agent record not found');
+        // Get the ACTIVE record (where user is), not the agent's config page
+        const activeRecord = this.ui.getActivePanel()?.getActiveRecord();
+        if (!activeRecord) {
+            console.error('[AgentHub] No active record');
+            this.ui.addToaster({
+                title: agent.name,
+                message: 'Open a page first to chat',
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
             return;
         }
-        console.log('[AgentHub] Found record:', agentRecord.getName());
+        console.log('[AgentHub] Active record:', activeRecord.getName());
+
+        // Get agent config record for status updates
+        const collections = await this.data.getAllCollections();
+        const agentHub = collections.find(c => c.getName() === 'AgentHub');
+        const agentRecords = await agentHub.getAllRecords();
+        const agentRecord = agentRecords.find(r => r.guid === agentGuid);
 
         // Set status to Thinking
-        agentRecord.prop('status')?.setChoice('thinking');
+        agentRecord?.prop('status')?.setChoice('thinking');
 
-        // Parse page content into system prompt and messages
+        // Build system prompt: our base + user's custom
+        const baseSystemPrompt = this.getBaseSystemPrompt();
+        const userSystemPrompt = agent.systemPrompt || '';
+        const systemPrompt = userSystemPrompt
+            ? `${baseSystemPrompt}\n\n---\nAdditional instructions:\n${userSystemPrompt}`
+            : baseSystemPrompt;
+
         console.log('[AgentHub] Parsing page content...');
-        const { systemPrompt, messages, linkedContent } = await this.parseAgentPage(agentRecord);
-        console.log('[AgentHub] Parsed:', { systemPrompt: systemPrompt?.slice(0, 50), messageCount: messages.length, messages });
+        const { messages, linkedContent } = await this.parseChatPage(activeRecord, agent.name);
+        console.log('[AgentHub] Parsed:', { systemPrompt: systemPrompt?.slice(0, 50), messageCount: messages.length });
 
         if (messages.length === 0) {
             console.log('[AgentHub] No messages to process');
-            agentRecord.prop('status')?.setChoice('idle');
+            agentRecord?.prop('status')?.setChoice('idle');
+            this.ui.addToaster({
+                title: agent.name,
+                message: 'Write something first',
+                dismissible: true,
+                autoDestroyTime: 3000,
+            });
             return;
         }
 
@@ -167,10 +196,10 @@ class Plugin extends CollectionPlugin {
         const apiKey = agent.token || await this.getSharedApiKey();
         console.log('[AgentHub] API key found:', apiKey ? 'yes (' + apiKey.slice(0, 10) + '...)' : 'no');
 
-        if (!apiKey) {
+        if (!apiKey && agent.provider !== 'ollama' && agent.provider !== 'custom') {
             console.error('[AgentHub] No API key configured');
-            agentRecord.prop('status')?.setChoice('error');
-            agentRecord.prop('last_error')?.set('No API key configured');
+            agentRecord?.prop('status')?.setChoice('error');
+            agentRecord?.prop('last_error')?.set('No API key configured');
             this.ui.addToaster({
                 title: agent.name,
                 message: 'No API key configured',
@@ -184,25 +213,26 @@ class Plugin extends CollectionPlugin {
         const fullMessages = this.buildMessages(messages, linkedContent);
 
         // Find the LAST item on the page to append after
-        const allItems = await agentRecord.getLineItems();
-        const topLevelItems = allItems.filter(item => item.parent_guid === agentRecord.guid);
+        const allItems = await activeRecord.getLineItems();
+        const topLevelItems = allItems.filter(item => item.parent_guid === activeRecord.guid);
         const lastItem = topLevelItems[topLevelItems.length - 1] || null;
 
         console.log('[AgentHub] Appending after last item:', lastItem?.guid);
 
         // Add blank line after last content
-        const blankItem = await agentRecord.createLineItem(null, lastItem, 'text');
+        const blankItem = await activeRecord.createLineItem(null, lastItem, 'text');
         blankItem?.setSegments([]);
 
-        // Create label item for agent response
-        const labelItem = await agentRecord.createLineItem(null, blankItem, 'text');
-        labelItem?.setSegments([{ type: 'bold', text: `${agent.name}:` }]);
+        // Create label item for agent response with robot marker
+        const labelItem = await activeRecord.createLineItem(null, blankItem, 'text');
+        labelItem?.setSegments([{ type: 'bold', text: `${agent.name} 🤖:` }]);
 
         // Initialize streaming renderer
-        const renderer = this.createStreamingRenderer(agentRecord, labelItem);
+        const renderer = this.createStreamingRenderer(activeRecord, labelItem);
         await renderer.init();
 
         // Call LLM API with streaming - progressively render as chunks arrive
+        console.log(`[AgentHub] Calling LLM: provider=${agent.provider}, model=${agent.model}`);
         try {
             await this.callLLMStreaming(
                 agent,
@@ -218,12 +248,23 @@ class Plugin extends CollectionPlugin {
 
             // Update stats and set status back to Idle
             await this.updateAgentStats(agentRecord, agent.name);
-            agentRecord.prop('status')?.setChoice('idle');
+            agentRecord?.prop('status')?.setChoice('idle');
+
+            // Delight: Auto-generate title if page is untitled
+            const currentName = activeRecord.getName()?.trim() || '';
+            const isUntitled = !currentName ||
+                               currentName.toLowerCase().startsWith('untitled') ||
+                               currentName.toLowerCase().startsWith('new chat');
+            console.log('[AgentHub] Current page name:', currentName, '- isUntitled:', isUntitled);
+            if (isUntitled) {
+                console.log('[AgentHub] Page untitled, suggesting title...');
+                this.suggestTitle(agent, apiKey, fullMessages, activeRecord);
+            }
 
         } catch (e) {
             console.error('[AgentHub] API error:', e);
-            agentRecord.prop('status')?.setChoice('error');
-            agentRecord.prop('last_error')?.set(e.message);
+            agentRecord?.prop('status')?.setChoice('error');
+            agentRecord?.prop('last_error')?.set(e.message);
 
             // Show error in preview
             renderer.previewItem?.setSegments([
@@ -233,72 +274,189 @@ class Plugin extends CollectionPlugin {
     }
 
     // =========================================================================
+    // System Prompt
+    // =========================================================================
+
+    getBaseSystemPrompt() {
+        return BASE_SYSTEM_PROMPT;
+    }
+
+    // =========================================================================
+    // Title Suggestion (Delight Feature)
+    // =========================================================================
+
+    async suggestTitle(agent, apiKey, messages, record) {
+        try {
+            console.log('[AgentHub] Suggesting title for chat...');
+
+            // Build a simple prompt for title suggestion
+            const conversation = messages.map(m =>
+                `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 200)}`
+            ).join('\n');
+
+            const titlePrompt = `Based on this conversation, suggest a very short title (3-5 words max, no quotes, no punctuation at end):
+
+${conversation}
+
+Title:`;
+
+            // Quick non-streaming call
+            const title = await this.quickCompletion(agent, apiKey, titlePrompt);
+
+            if (title && title.length < 50) {
+                const cleanTitle = title.trim().replace(/^["']|["']$/g, '').replace(/[.!?]$/, '');
+                console.log('[AgentHub] Setting title:', cleanTitle);
+                record.prop('title')?.set(cleanTitle);
+            }
+        } catch (e) {
+            console.log('[AgentHub] Title suggestion failed (non-critical):', e.message);
+            // Silent fail - this is just a delight feature
+        }
+    }
+
+    async quickCompletion(agent, apiKey, prompt) {
+        const { provider, model, customModel, customEndpoint } = agent;
+
+        const messages = [{ role: 'user', content: prompt }];
+
+        // Use appropriate endpoint based on provider
+        let endpoint, headers, body;
+
+        if (provider === 'anthropic') {
+            endpoint = 'https://api.anthropic.com/v1/messages';
+            headers = {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true',
+            };
+            body = {
+                model: model === 'haiku' ? 'claude-3-haiku-20240307' : 'claude-sonnet-4-20250514',
+                max_tokens: 50,
+                messages,
+            };
+        } else if (provider === 'custom' || provider === 'ollama') {
+            endpoint = customEndpoint || 'http://localhost:11434/api/chat';
+            headers = { 'Content-Type': 'application/json' };
+            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+            body = {
+                model: customModel || 'default',
+                max_tokens: 50,
+                messages,
+            };
+        } else {
+            // OpenAI format
+            endpoint = customEndpoint || 'https://api.openai.com/v1/chat/completions';
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+            };
+            body = {
+                model: customModel || 'gpt-4o-mini',
+                max_tokens: 50,
+                messages,
+            };
+        }
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+        });
+
+        if (!response.ok) return null;
+
+        const data = await response.json();
+
+        // Extract text based on provider format
+        if (provider === 'anthropic') {
+            return data.content?.[0]?.text || null;
+        } else {
+            return data.choices?.[0]?.message?.content || null;
+        }
+    }
+
+    // =========================================================================
     // Page Parsing
     // =========================================================================
 
-    async parseAgentPage(record) {
+    /**
+     * Parse a chat page into messages.
+     * - Lines matching **AgentName 🤖:** are assistant messages
+     * - Everything else is user content
+     * - Links [[...]] get resolved and inlined as context
+     */
+    async parseChatPage(record, currentAgentName) {
         const items = await record.getLineItems();
 
-        let systemPrompt = '';
         const messages = [];
         const linkedContent = new Map();
 
-        let inSystemPrompt = false;
         let currentRole = null;
         let currentContent = '';
 
+        // Pattern: **AgentName 🤖:** (bold text ending with robot emoji and colon)
+        const agentMarkerPattern = /^(.+)\s*🤖:$/;
+
         for (const item of items) {
-            // Extract text from segments
-            const text = (item.segments || []).map(s => s.text || '').join('');
-            const isToggle = item.type === 'toggle';
+            // Debug: log segments with refs
+            const hasRef = (item.segments || []).some(s => s.type === 'ref');
+            if (hasRef) {
+                console.log('[AgentHub] Item with ref segments:', JSON.stringify(item.segments));
+            }
+
+            // Extract text, handling ref segments specially (they have object text with guid)
+            const text = (item.segments || []).map(s => {
+                if (s.type === 'ref' && typeof s.text === 'object') {
+                    return ''; // Skip ref content in text, it's handled as linked context
+                }
+                return s.text || '';
+            }).join('');
             const parentGuid = item.parent_guid;
 
-            // System prompt is in a toggle at the top level
-            if (isToggle && parentGuid === record.guid && text.toLowerCase().includes('system')) {
-                inSystemPrompt = true;
+            // Only process top-level items
+            if (parentGuid !== record.guid) {
                 continue;
             }
 
-            // Content inside system prompt toggle
-            if (inSystemPrompt && parentGuid !== record.guid) {
-                systemPrompt += text + '\n';
-                continue;
-            }
+            // Check if this is an agent marker (look at first segment for bold)
+            const firstSegment = item.segments?.[0];
+            const isBoldMarker = firstSegment?.type === 'bold';
+            const markerMatch = isBoldMarker && text.match(agentMarkerPattern);
 
-            // Exited system prompt
-            if (inSystemPrompt && parentGuid === record.guid) {
-                inSystemPrompt = false;
-            }
-
-            // Parse chat messages
-            // Format: "Me: message" or "Agent: message" or "[AgentName]: message"
-            const meMatch = text.match(/^Me:\s*(.*)/i);
-            const agentMatch = text.match(/^(?:Agent|[A-Z][a-z]+):\s*(.*)/);
-
-            if (meMatch) {
+            if (markerMatch) {
                 // Save previous message
-                if (currentRole && currentContent) {
-                    messages.push({ role: currentRole, content: currentContent.trim() });
-                }
-                currentRole = 'user';
-                currentContent = meMatch[1];
-            } else if (agentMatch && !meMatch) {
-                // Save previous message
-                if (currentRole && currentContent) {
+                if (currentRole && currentContent.trim()) {
                     messages.push({ role: currentRole, content: currentContent.trim() });
                 }
                 currentRole = 'assistant';
-                currentContent = agentMatch[1];
-            } else if (currentRole) {
-                // Continuation of current message
-                currentContent += '\n' + text;
+                currentContent = '';
+            } else if (text.trim()) {
+                // User content or continuation
+                if (currentRole === 'assistant') {
+                    // Continuation of assistant message
+                    currentContent += (currentContent ? '\n' : '') + text;
+                } else {
+                    // Save previous user content if switching
+                    if (currentRole === 'user' && currentContent.trim()) {
+                        messages.push({ role: currentRole, content: currentContent.trim() });
+                        currentContent = '';
+                    }
+                    currentRole = 'user';
+                    currentContent += (currentContent ? '\n' : '') + text;
+                }
             }
 
-            // Extract linked content
-            const links = this.extractLinks(text);
+            // Extract linked content for context
+            const links = this.extractLinks(item.segments || []);
+            if (links.length > 0) {
+                console.log('[AgentHub] Found links:', links);
+            }
             for (const link of links) {
-                if (!linkedContent.has(link.guid)) {
+                if (link.guid && !linkedContent.has(link.guid)) {
+                    console.log('[AgentHub] Resolving link:', link.guid);
                     const content = await this.resolveLink(link.guid);
+                    console.log('[AgentHub] Resolved content:', content?.slice(0, 100));
                     if (content) {
                         linkedContent.set(link.guid, { title: link.title, content });
                     }
@@ -306,21 +464,27 @@ class Plugin extends CollectionPlugin {
             }
         }
 
+        // Debug: log all segments to see link structure
+        console.log('[AgentHub] Total linked content items:', linkedContent.size);
+
         // Don't forget the last message
-        if (currentRole && currentContent) {
+        if (currentRole && currentContent.trim()) {
             messages.push({ role: currentRole, content: currentContent.trim() });
         }
 
-        return { systemPrompt: systemPrompt.trim(), messages, linkedContent };
+        return { messages, linkedContent };
     }
 
-    extractLinks(text) {
-        // Match [[Page Name]] style links and block refs
+    extractLinks(segments) {
+        // Extract linked records from segments (type: 'ref')
         const links = [];
-        // This is simplified - real implementation would parse Thymer's link format
-        const matches = text.matchAll(/\[\[([^\]]+)\]\]/g);
-        for (const match of matches) {
-            links.push({ title: match[1], guid: null }); // Would need actual GUID resolution
+        for (const segment of segments) {
+            if (segment.type === 'ref' && segment.text?.guid) {
+                links.push({
+                    title: segment.text.title || 'Linked record',
+                    guid: segment.text.guid
+                });
+            }
         }
         return links;
     }
@@ -347,11 +511,13 @@ class Plugin extends CollectionPlugin {
     buildMessages(messages, linkedContent) {
         // If there's linked content, prepend it to the first user message
         if (linkedContent.size > 0 && messages.length > 0) {
-            let contextBlock = '---\nLinked Context:\n';
+            let contextBlock = '---\nLinked Context (already resolved - no need to search):\n';
             for (const [guid, { title, content }] of linkedContent) {
                 contextBlock += `\n## ${title}\n${content}\n`;
             }
             contextBlock += '---\n\n';
+
+            console.log('[AgentHub] Adding linked context block:', contextBlock.slice(0, 200) + '...');
 
             // Find first user message and prepend context
             const firstUserIdx = messages.findIndex(m => m.role === 'user');
@@ -360,6 +526,7 @@ class Plugin extends CollectionPlugin {
                     ...messages[firstUserIdx],
                     content: contextBlock + messages[firstUserIdx].content,
                 };
+                console.log('[AgentHub] First user message now:', messages[firstUserIdx].content.slice(0, 300) + '...');
             }
         }
 
@@ -387,7 +554,7 @@ class Plugin extends CollectionPlugin {
         }
     }
 
-    async callAnthropicStreaming(apiKey, modelChoice, customModel, systemPrompt, messages, onChunk) {
+    async callAnthropicStreaming(apiKey, modelChoice, customModel, systemPrompt, messages, onChunk, enableTools = true) {
         const modelMap = {
             'sonnet': 'claude-sonnet-4-5',
             'haiku': 'claude-haiku-4-5',
@@ -395,6 +562,21 @@ class Plugin extends CollectionPlugin {
             'custom': customModel,
         };
         const model = modelMap[modelChoice] || customModel || 'claude-sonnet-4-5';
+
+        // Get tools in Anthropic format
+        const tools = enableTools ? this.getToolsForAnthropicAPI() : null;
+
+        const requestBody = {
+            model,
+            max_tokens: 4096,
+            stream: true,
+            system: systemPrompt || undefined,
+            messages,
+        };
+
+        if (tools && tools.length > 0) {
+            requestBody.tools = tools;
+        }
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -404,13 +586,7 @@ class Plugin extends CollectionPlugin {
                 'anthropic-version': '2023-06-01',
                 'anthropic-dangerous-direct-browser-access': 'true',
             },
-            body: JSON.stringify({
-                model,
-                max_tokens: 4096,
-                stream: true,
-                system: systemPrompt || undefined,
-                messages,
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -418,10 +594,90 @@ class Plugin extends CollectionPlugin {
             throw new Error(`Anthropic API error ${response.status}: ${error}`);
         }
 
-        return this.processAnthropicStream(response, onChunk);
+        const result = await this.processAnthropicStream(response, onChunk);
+
+        // If we got tool results, continue the conversation
+        if (result?.toolResults && result.toolResults.length > 0) {
+            console.log('[AgentHub] Continuing with tool results...');
+
+            // Build continuation messages
+            const continuationMessages = [
+                ...messages,
+                {
+                    role: 'assistant',
+                    content: result.toolResults.map(tr => ({
+                        type: 'tool_use',
+                        id: tr.id,
+                        name: tr.name,
+                        input: {} // Original input not needed for response
+                    }))
+                },
+                {
+                    role: 'user',
+                    content: [
+                        ...result.toolResults.map(tr => ({
+                            type: 'tool_result',
+                            tool_use_id: tr.id,
+                            content: JSON.stringify(tr.result)
+                        })),
+                        {
+                            type: 'text',
+                            text: 'Format nicely. Use [[GUID]] for clickable links - they render as the record title, so don\'t repeat the title next to the link.'
+                        }
+                    ]
+                }
+            ];
+
+            // Make follow-up call (without tools to get final response)
+            const followUpResponse = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-dangerous-direct-browser-access': 'true',
+                },
+                body: JSON.stringify({
+                    model,
+                    max_tokens: 4096,
+                    stream: true,
+                    system: systemPrompt || undefined,
+                    messages: continuationMessages,
+                }),
+            });
+
+            if (!followUpResponse.ok) {
+                const error = await followUpResponse.text();
+                throw new Error(`Anthropic continuation error: ${error}`);
+            }
+
+            // Process the follow-up response (pass existing text to append to)
+            const finalResult = await this.processAnthropicStream(followUpResponse, (text) => {
+                onChunk(result.text + '\n' + text);
+            });
+
+            return typeof finalResult === 'string' ? result.text + '\n' + finalResult : result.text;
+        }
+
+        return typeof result === 'string' ? result : result.text;
     }
 
-    async callOpenAIStreaming(apiKey, modelChoice, customModel, customEndpoint, systemPrompt, messages, onChunk) {
+    /**
+     * Get tools in Anthropic format (different from OpenAI)
+     */
+    getToolsForAnthropicAPI() {
+        if (!window.syncHub?.getRegisteredTools) return [];
+
+        const tools = window.syncHub.getRegisteredTools();
+        // Convert from OpenAI format to Anthropic format
+        return tools.map(t => ({
+            name: t.function.name,
+            description: t.function.description,
+            input_schema: t.function.parameters
+        }));
+    }
+
+    async callOpenAIStreaming(apiKey, modelChoice, customModel, customEndpoint, systemPrompt, messages, onChunk, enableTools = true) {
         const modelMap = {
             'gpt-4o': 'gpt-4o',
             'gpt-4o-mini': 'gpt-4o-mini',
@@ -430,10 +686,28 @@ class Plugin extends CollectionPlugin {
         const model = modelMap[modelChoice] || customModel || 'gpt-4o';
         const endpoint = customEndpoint || 'https://api.openai.com/v1/chat/completions';
 
+        console.log(`[AgentHub] Calling OpenAI: ${endpoint}, model: ${model}`);
+
         // Convert messages to OpenAI format (add system as first message)
         const openaiMessages = systemPrompt
             ? [{ role: 'system', content: systemPrompt }, ...messages]
             : messages;
+
+        // Get registered tools from SyncHub
+        const tools = enableTools ? this.getToolsForAPI() : null;
+
+        const requestBody = {
+            model,
+            max_tokens: 4096,
+            stream: true,
+            messages: openaiMessages,
+        };
+
+        if (tools && tools.length > 0) {
+            requestBody.tools = tools;
+            requestBody.tool_choice = 'auto';
+            console.log(`[AgentHub] Sending ${tools.length} tools to OpenAI`);
+        }
 
         const response = await fetch(endpoint, {
             method: 'POST',
@@ -441,12 +715,7 @@ class Plugin extends CollectionPlugin {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
             },
-            body: JSON.stringify({
-                model,
-                max_tokens: 4096,
-                stream: true,
-                messages: openaiMessages,
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -454,39 +723,201 @@ class Plugin extends CollectionPlugin {
             throw new Error(`OpenAI API error ${response.status}: ${error}`);
         }
 
-        return this.processOpenAIStream(response, onChunk);
+        const result = await this.processOpenAIStream(response, onChunk);
+
+        // Handle tool calls
+        if (result?.toolCalls && result.toolCalls.length > 0) {
+            console.log('[AgentHub] OpenAI tool calls detected:', result.toolCalls);
+
+            let fullText = result.text || '';
+            const toolResults = [];
+
+            for (const tc of result.toolCalls) {
+                try {
+                    const args = tc.arguments ? JSON.parse(tc.arguments) : {};
+                    console.log(`[AgentHub] Executing tool: ${tc.name}`, args);
+
+                    fullText += `\n*Using ${tc.name}...*\n`;
+                    onChunk(fullText);
+
+                    const toolResult = await window.syncHub?.executeToolCall(tc.name, args);
+                    toolResults.push({ id: tc.id, name: tc.name, result: toolResult });
+                } catch (e) {
+                    console.error('[AgentHub] Tool execution error:', e);
+                    toolResults.push({ id: tc.id, name: tc.name, result: { error: e.message } });
+                }
+            }
+
+            // Continue conversation with tool results
+            const continuationMessages = [
+                ...openaiMessages,
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: result.toolCalls.map(tc => ({
+                        id: tc.id,
+                        type: 'function',
+                        function: { name: tc.name, arguments: tc.arguments || '{}' }
+                    }))
+                },
+                ...toolResults.map(tr => ({
+                    role: 'tool',
+                    tool_call_id: tr.id,
+                    content: JSON.stringify(tr.result)
+                })),
+                { role: 'user', content: 'Format nicely. Use [[GUID]] for clickable links - they render as the record title, so don\'t repeat the title next to the link.' }
+            ];
+
+            // Follow-up call without tools
+            const followUpResponse = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    max_tokens: 4096,
+                    stream: true,
+                    messages: continuationMessages,
+                }),
+            });
+
+            if (followUpResponse.ok) {
+                const finalResult = await this.processOpenAIStream(followUpResponse, (text) => {
+                    onChunk(fullText + '\n' + text);
+                });
+                return fullText + '\n' + (finalResult?.text || finalResult);
+            }
+
+            return fullText;
+        }
+
+        return result?.text || result;
     }
 
-    async callOllamaStreaming(modelChoice, customModel, customEndpoint, systemPrompt, messages, onChunk) {
+    /**
+     * Get tools in OpenAI format from SyncHub
+     */
+    getToolsForAPI() {
+        if (!window.syncHub?.getRegisteredTools) return [];
+
+        const tools = window.syncHub.getRegisteredTools();
+        // Filter out internal properties, keep only OpenAI format
+        return tools.map(t => ({
+            type: t.type,
+            function: t.function
+        }));
+    }
+
+    async callOllamaStreaming(modelChoice, customModel, customEndpoint, systemPrompt, messages, onChunk, enableTools = true) {
         const model = customModel || modelChoice || 'llama3.2';
         const endpoint = customEndpoint || 'http://localhost:11434/api/chat';
+
+        console.log(`[AgentHub] Calling Ollama: ${endpoint}, model: ${model}`);
+
+        // Check for mixed content issue
+        if (window.location.protocol === 'https:' && endpoint.startsWith('http://')) {
+            throw new Error(`Mixed content blocked: Cannot call HTTP endpoint (${endpoint}) from HTTPS page. Use an HTTPS proxy or run Thymer locally.`);
+        }
 
         // Convert to Ollama format
         const ollamaMessages = systemPrompt
             ? [{ role: 'system', content: systemPrompt }, ...messages]
             : messages;
 
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model,
-                stream: true,
-                messages: ollamaMessages,
-            }),
-        });
+        // Get tools in OpenAI format (Ollama uses same format)
+        const tools = enableTools ? this.getToolsForAPI() : null;
+
+        const requestBody = {
+            model,
+            stream: true,
+            messages: ollamaMessages,
+        };
+
+        if (tools && tools.length > 0) {
+            requestBody.tools = tools;
+            console.log(`[AgentHub] Sending ${tools.length} tools to Ollama`);
+        }
+
+        let response;
+        try {
+            response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody),
+            });
+        } catch (fetchError) {
+            throw new Error(`Failed to connect to Ollama at ${endpoint}: ${fetchError.message}`);
+        }
 
         if (!response.ok) {
             const error = await response.text();
             throw new Error(`Ollama API error ${response.status}: ${error}`);
         }
 
-        return this.processOllamaStream(response, onChunk);
+        const result = await this.processOllamaStream(response, onChunk);
+
+        // Handle tool calls - similar to OpenAI flow
+        if (result?.toolCalls && result.toolCalls.length > 0) {
+            console.log('[AgentHub] Ollama tool calls detected:', result.toolCalls);
+
+            const toolResults = [];
+            for (const tc of result.toolCalls) {
+                try {
+                    const args = tc.arguments ? JSON.parse(tc.arguments) : {};
+                    console.log(`[AgentHub] Executing tool: ${tc.name}`, args);
+
+                    result.text += `\n*Using ${tc.name}...*\n`;
+                    onChunk(result.text);
+
+                    const toolResult = await window.syncHub?.executeToolCall(tc.name, args);
+                    toolResults.push({ name: tc.name, result: toolResult });
+                } catch (e) {
+                    console.error('[AgentHub] Tool execution error:', e);
+                    toolResults.push({ name: tc.name, result: { error: e.message } });
+                }
+            }
+
+            // Continue conversation with tool results
+            const continuationMessages = [
+                ...ollamaMessages,
+                { role: 'assistant', content: '', tool_calls: result.toolCalls.map((tc, i) => ({
+                    id: `call_${i}`,
+                    type: 'function',
+                    function: { name: tc.name, arguments: tc.arguments || '{}' }
+                }))},
+                ...toolResults.map((tr, i) => ({
+                    role: 'tool',
+                    tool_call_id: `call_${i}`,
+                    content: JSON.stringify(tr.result)
+                })),
+                { role: 'user', content: 'Format nicely. Use [[GUID]] for clickable links - they render as the record title, so don\'t repeat the title next to the link.' }
+            ];
+
+            // Follow-up call without tools
+            const followUpResponse = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model, stream: true, messages: continuationMessages }),
+            });
+
+            if (followUpResponse.ok) {
+                const finalResult = await this.processOllamaStream(followUpResponse, (text) => {
+                    onChunk(result.text + '\n' + text);
+                });
+                return result.text + '\n' + (finalResult?.text || finalResult);
+            }
+        }
+
+        return result?.text || result;
     }
 
-    async callCustomStreaming(apiKey, customModel, customEndpoint, systemPrompt, messages, onChunk) {
+    async callCustomStreaming(apiKey, customModel, customEndpoint, systemPrompt, messages, onChunk, enableTools = true) {
         // Generic OpenAI-compatible endpoint
         if (!customEndpoint) throw new Error('Custom endpoint required');
+
+        console.log(`[AgentHub] Calling custom endpoint: ${customEndpoint}, model: ${customModel}`);
 
         const customMessages = systemPrompt
             ? [{ role: 'system', content: systemPrompt }, ...messages]
@@ -495,14 +926,24 @@ class Plugin extends CollectionPlugin {
         const headers = { 'Content-Type': 'application/json' };
         if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
+        // Get tools
+        const tools = enableTools ? this.getToolsForAPI() : null;
+
+        const requestBody = {
+            model: customModel || 'default',
+            stream: true,
+            messages: customMessages,
+        };
+
+        if (tools && tools.length > 0) {
+            requestBody.tools = tools;
+            console.log(`[AgentHub] Sending ${tools.length} tools to custom endpoint`);
+        }
+
         const response = await fetch(customEndpoint, {
             method: 'POST',
             headers,
-            body: JSON.stringify({
-                model: customModel || 'default',
-                stream: true,
-                messages: customMessages,
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -510,8 +951,73 @@ class Plugin extends CollectionPlugin {
             throw new Error(`Custom API error ${response.status}: ${error}`);
         }
 
-        // Try OpenAI format first (most common)
-        return this.processOpenAIStream(response, onChunk);
+        const result = await this.processOpenAIStream(response, onChunk);
+
+        // Handle tool calls
+        if (result?.toolCalls && result.toolCalls.length > 0) {
+            console.log('[AgentHub] Custom endpoint tool calls detected:', result.toolCalls);
+
+            let fullText = result.text || '';
+            const toolResults = [];
+
+            for (const tc of result.toolCalls) {
+                try {
+                    const args = tc.arguments ? JSON.parse(tc.arguments) : {};
+                    console.log(`[AgentHub] Executing tool: ${tc.name}`, args);
+
+                    fullText += `\n*Using ${tc.name}...*\n`;
+                    onChunk(fullText);
+
+                    const toolResult = await window.syncHub?.executeToolCall(tc.name, args);
+                    toolResults.push({ id: tc.id, name: tc.name, result: toolResult });
+                } catch (e) {
+                    console.error('[AgentHub] Tool execution error:', e);
+                    toolResults.push({ id: tc.id, name: tc.name, result: { error: e.message } });
+                }
+            }
+
+            // Continue conversation with tool results
+            const continuationMessages = [
+                ...customMessages,
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: result.toolCalls.map(tc => ({
+                        id: tc.id,
+                        type: 'function',
+                        function: { name: tc.name, arguments: tc.arguments || '{}' }
+                    }))
+                },
+                ...toolResults.map(tr => ({
+                    role: 'tool',
+                    tool_call_id: tr.id,
+                    content: JSON.stringify(tr.result)
+                })),
+                { role: 'user', content: 'Format nicely. Use [[GUID]] for clickable links - they render as the record title, so don\'t repeat the title next to the link.' }
+            ];
+
+            // Follow-up call without tools
+            const followUpResponse = await fetch(customEndpoint, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    model: customModel || 'default',
+                    stream: true,
+                    messages: continuationMessages,
+                }),
+            });
+
+            if (followUpResponse.ok) {
+                const finalResult = await this.processOpenAIStream(followUpResponse, (text) => {
+                    onChunk(fullText + '\n' + text);
+                });
+                return fullText + '\n' + (finalResult?.text || finalResult);
+            }
+
+            return fullText;
+        }
+
+        return result?.text || result;
     }
 
     // Stream processors
@@ -520,6 +1026,8 @@ class Plugin extends CollectionPlugin {
         const decoder = new TextDecoder();
         let fullText = '';
         let buffer = '';
+        let toolUseBlocks = [];
+        let currentToolUse = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -535,14 +1043,81 @@ class Plugin extends CollectionPlugin {
                     if (jsonStr === '[DONE]') continue;
                     try {
                         const data = JSON.parse(jsonStr);
+
+                        // Handle text content
                         if (data.type === 'content_block_delta' && data.delta?.text) {
                             fullText += data.delta.text;
                             onChunk(fullText);
+                        }
+
+                        // Handle tool_use block start
+                        if (data.type === 'content_block_start' && data.content_block?.type === 'tool_use') {
+                            currentToolUse = {
+                                id: data.content_block.id,
+                                name: data.content_block.name,
+                                input: ''
+                            };
+                        }
+
+                        // Handle tool_use input delta
+                        if (data.type === 'content_block_delta' && data.delta?.type === 'input_json_delta') {
+                            if (currentToolUse) {
+                                currentToolUse.input += data.delta.partial_json || '';
+                            }
+                        }
+
+                        // Handle tool_use block stop
+                        if (data.type === 'content_block_stop' && currentToolUse) {
+                            toolUseBlocks.push(currentToolUse);
+                            currentToolUse = null;
                         }
                     } catch (e) {}
                 }
             }
         }
+
+        // If we have tool calls, execute them and return results for continuation
+        if (toolUseBlocks.length > 0) {
+            console.log('[AgentHub] Anthropic tool calls detected:', toolUseBlocks);
+
+            const toolResults = [];
+            for (const tc of toolUseBlocks) {
+                if (tc.name) {
+                    try {
+                        const args = tc.input ? JSON.parse(tc.input) : {};
+                        console.log(`[AgentHub] Executing tool: ${tc.name}`, args);
+
+                        // Show tool being used
+                        fullText += `\n*Using ${tc.name}...*\n`;
+                        onChunk(fullText);
+
+                        // Execute via SyncHub
+                        const result = await window.syncHub?.executeToolCall(tc.name, args);
+                        console.log('[AgentHub] Tool result:', result);
+
+                        toolResults.push({
+                            id: tc.id,
+                            name: tc.name,
+                            result: result
+                        });
+                    } catch (e) {
+                        console.error('[AgentHub] Tool execution error:', e);
+                        toolResults.push({
+                            id: tc.id,
+                            name: tc.name,
+                            result: { error: e.message }
+                        });
+                    }
+                }
+            }
+
+            // Return with tool results for continuation
+            return {
+                text: fullText,
+                toolResults: toolResults
+            };
+        }
+
         return fullText;
     }
 
@@ -551,6 +1126,8 @@ class Plugin extends CollectionPlugin {
         const decoder = new TextDecoder();
         let fullText = '';
         let buffer = '';
+        let toolCalls = [];
+        let currentToolCall = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -566,15 +1143,47 @@ class Plugin extends CollectionPlugin {
                     if (jsonStr === '[DONE]') continue;
                     try {
                         const data = JSON.parse(jsonStr);
-                        const delta = data.choices?.[0]?.delta?.content;
+                        const choice = data.choices?.[0];
+
+                        // Handle text content
+                        const delta = choice?.delta?.content;
                         if (delta) {
                             fullText += delta;
                             onChunk(fullText);
+                        }
+
+                        // Handle tool calls (streaming)
+                        const toolCallDelta = choice?.delta?.tool_calls;
+                        if (toolCallDelta) {
+                            for (const tc of toolCallDelta) {
+                                // OpenAI sends incrementally with index, MLX sends complete without index
+                                const idx = tc.index ?? toolCalls.length;
+                                if (!toolCalls[idx]) {
+                                    toolCalls[idx] = {
+                                        id: tc.id || `call_${idx}`,
+                                        name: tc.function?.name || '',
+                                        arguments: ''
+                                    };
+                                }
+                                if (tc.id) toolCalls[idx].id = tc.id;
+                                if (tc.function?.name) toolCalls[idx].name = tc.function.name;
+                                // MLX sends complete arguments as object, OpenAI sends as string chunks
+                                if (tc.function?.arguments) {
+                                    const args = tc.function.arguments;
+                                    toolCalls[idx].arguments += typeof args === 'string' ? args : JSON.stringify(args);
+                                }
+                            }
                         }
                     } catch (e) {}
                 }
             }
         }
+
+        // Return object if tool calls detected, otherwise just text
+        if (toolCalls.length > 0) {
+            return { text: fullText, toolCalls };
+        }
+
         return fullText;
     }
 
@@ -583,6 +1192,7 @@ class Plugin extends CollectionPlugin {
         const decoder = new TextDecoder();
         let fullText = '';
         let buffer = '';
+        let toolCalls = [];
 
         while (true) {
             const { done, value } = await reader.read();
@@ -596,12 +1206,29 @@ class Plugin extends CollectionPlugin {
                 if (!line.trim()) continue;
                 try {
                     const data = JSON.parse(line);
+
+                    // Handle text content
                     if (data.message?.content) {
                         fullText += data.message.content;
                         onChunk(fullText);
                     }
+
+                    // Handle tool calls (Ollama format)
+                    if (data.message?.tool_calls) {
+                        for (const tc of data.message.tool_calls) {
+                            toolCalls.push({
+                                name: tc.function?.name,
+                                arguments: JSON.stringify(tc.function?.arguments || {})
+                            });
+                        }
+                    }
                 } catch (e) {}
             }
+        }
+
+        // Return object if tool calls detected, otherwise just text
+        if (toolCalls.length > 0) {
+            return { text: fullText, toolCalls };
         }
         return fullText;
     }
@@ -623,6 +1250,7 @@ class Plugin extends CollectionPlugin {
             codeBlockLang: '',
             renderedCount: 0,
             lastItemPromise: null,
+            isFirstBlock: true,
 
             async init() {
                 this.lastItemPromise = Promise.resolve(this.labelItem);
@@ -672,16 +1300,30 @@ class Plugin extends CollectionPlugin {
 
                 const { type, segments, level } = parsed;
                 const renderer = this;
+                const isHeading = type === 'heading';
+                const needsBlankLine = BLANK_LINE_BEFORE_HEADINGS && isHeading && !this.isFirstBlock;
 
                 this.lastItemPromise = this.lastItemPromise.then(async (lastItem) => {
                     try {
-                        const item = await renderer.record.createLineItem(null, lastItem, type);
+                        let insertAfter = lastItem;
+
+                        // Add blank line before headings (except first block)
+                        if (needsBlankLine) {
+                            const blank = await renderer.record.createLineItem(null, insertAfter, 'text');
+                            if (blank) {
+                                blank.setSegments([]);
+                                insertAfter = blank;
+                            }
+                        }
+
+                        const item = await renderer.record.createLineItem(null, insertAfter, type);
                         if (item) {
-                            if (type === 'heading' && level > 1) {
+                            if (isHeading && level > 1) {
                                 try { item.setHeadingSize?.(level); } catch(e) {}
                             }
                             item.setSegments(segments);
                             renderer.renderedCount++;
+                            renderer.isFirstBlock = false;
                             return item;
                         }
                         return lastItem;
@@ -710,6 +1352,7 @@ class Plugin extends CollectionPlugin {
                         }
 
                         renderer.renderedCount++;
+                        renderer.isFirstBlock = false;
                         return block;
                     } catch (e) {
                         return lastItem;

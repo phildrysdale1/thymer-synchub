@@ -732,7 +732,12 @@ class Plugin extends AppPlugin {
             const existingRecords = await captures.getAllRecords();
             const existing = existingRecords.find(r => r.text('external_id') === externalId);
             if (existing) {
-                return { guid: existing.guid, title, skipped: true };
+                // Update existing capture with new content
+                const bodyContent = content.replace(/^#\s+.+\n?/, '').trim();
+                if (bodyContent && window.syncHub?.replaceContents) {
+                    await window.syncHub.replaceContents(bodyContent, existing);
+                }
+                return { guid: existing.guid, title, updated: true };
             }
 
             // Create the record

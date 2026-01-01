@@ -133,6 +133,15 @@
       ]
     },
     {
+      "icon": "ti-message-2",
+      "id": "system_prompt",
+      "label": "System Prompt",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
       "icon": "ti-code",
       "id": "custom_model",
       "label": "Custom Model",
