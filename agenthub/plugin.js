@@ -621,29 +621,180 @@ class Plugin extends CollectionPlugin {
     }
 
     // =========================================================================
-    // Response Formatting
+    // Progressive Markdown Renderer
     // =========================================================================
 
-    formatResponse(agentName, text) {
-        // Build segments with agent name prefix + formatted text
-        const segments = [
-            { type: 'bold', text: `${agentName}: ` },
-        ];
+    createProgressiveRenderer(record, labelItem) {
+        const self = this;
+        return {
+            record,
+            labelItem,
+            lastItem: labelItem,
+            renderedLength: 0,
+            inCodeBlock: false,
+            codeBlockLang: '',
+            currentCodeBlock: null,
+            lastCodeLineItem: null,
+            typingItem: null,
 
-        // Use SyncHub's parseMarkdown to get formatted segments
-        if (window.syncHub?.parseMarkdown) {
-            const blocks = window.syncHub.parseMarkdown(text);
-            // Flatten all block segments into one line (for simple responses)
-            for (const block of blocks) {
-                if (block.segments) {
-                    segments.push(...block.segments);
+            async update(fullText) {
+                const newContent = fullText.slice(this.renderedLength);
+                if (!newContent) return;
+
+                // Split into lines
+                const lines = newContent.split('\n');
+                const completeLines = lines.slice(0, -1); // All but last
+                const partialLine = lines[lines.length - 1];
+
+                // Render complete lines
+                for (const line of completeLines) {
+                    await this.renderLine(line);
+                    this.renderedLength += line.length + 1; // +1 for \n
                 }
-            }
-        } else {
-            segments.push({ type: 'text', text });
-        }
 
-        return segments;
+                // Update typing indicator with partial line
+                await this.updateTypingIndicator(partialLine);
+            },
+
+            async renderLine(line) {
+                // Clear typing indicator since we're rendering a real line
+                if (this.typingItem) {
+                    this.typingItem.setSegments([]);
+                    this.typingItem = null;
+                }
+
+                // Handle code block markers
+                if (line.startsWith('```')) {
+                    if (!this.inCodeBlock) {
+                        // Starting code block
+                        this.inCodeBlock = true;
+                        this.codeBlockLang = line.slice(3).trim();
+                        this.currentCodeBlock = await this.record.createLineItem(
+                            this.labelItem, this.lastItem, 'block'
+                        );
+                        if (this.currentCodeBlock) {
+                            const lang = self.normalizeLanguage(this.codeBlockLang);
+                            try { this.currentCodeBlock.setHighlightLanguage?.(lang); } catch(e) {}
+                            this.currentCodeBlock.setSegments([]);
+                            this.lastItem = this.currentCodeBlock;
+                            this.lastCodeLineItem = null;
+                        }
+                    } else {
+                        // Ending code block
+                        this.inCodeBlock = false;
+                        this.currentCodeBlock = null;
+                        this.lastCodeLineItem = null;
+                    }
+                    return;
+                }
+
+                if (this.inCodeBlock && this.currentCodeBlock) {
+                    // Add line inside code block
+                    const codeLine = await this.record.createLineItem(
+                        this.currentCodeBlock, this.lastCodeLineItem, 'text'
+                    );
+                    if (codeLine) {
+                        codeLine.setSegments([{ type: 'text', text: line }]);
+                        this.lastCodeLineItem = codeLine;
+                    }
+                } else if (line.trim()) {
+                    // Regular line - parse inline formatting
+                    const item = await this.record.createLineItem(
+                        this.labelItem, this.lastItem, this.getLineType(line)
+                    );
+                    if (item) {
+                        const { type, segments } = this.parseLine(line);
+                        item.setSegments(segments);
+                        this.lastItem = item;
+                    }
+                }
+            },
+
+            async updateTypingIndicator(text) {
+                // Don't show empty typing indicator
+                if (!text && !this.inCodeBlock) {
+                    if (this.typingItem) {
+                        this.typingItem.setSegments([]);
+                    }
+                    return;
+                }
+
+                // Create typing indicator if needed
+                if (!this.typingItem) {
+                    const parent = this.inCodeBlock ? this.currentCodeBlock : this.labelItem;
+                    const after = this.inCodeBlock ? this.lastCodeLineItem : this.lastItem;
+                    this.typingItem = await this.record.createLineItem(parent, after, 'text');
+                }
+
+                if (this.typingItem) {
+                    const display = this.inCodeBlock ? text : text;
+                    this.typingItem.setSegments([
+                        { type: 'text', text: display },
+                        { type: 'code', text: '█' }, // Cursor
+                    ]);
+                }
+            },
+
+            async finalize(fullText) {
+                // Render any remaining content
+                const remaining = fullText.slice(this.renderedLength);
+                if (remaining.trim()) {
+                    await this.renderLine(remaining);
+                }
+                // Clear typing indicator
+                if (this.typingItem) {
+                    this.typingItem.setSegments([]);
+                }
+            },
+
+            getLineType(line) {
+                if (line.match(/^#{1,6}\s/)) return 'heading';
+                if (line.match(/^[-*]\s+\[[ x]\]/i)) return 'task';
+                if (line.match(/^[-*]\s/)) return 'ulist';
+                if (line.match(/^\d+\.\s/)) return 'olist';
+                if (line.startsWith('> ')) return 'quote';
+                return 'text';
+            },
+
+            parseLine(line) {
+                // Strip markdown prefixes and parse inline formatting
+                let text = line;
+                let type = 'text';
+
+                // Headers
+                const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+                if (headerMatch) {
+                    text = headerMatch[2];
+                    type = 'heading';
+                }
+                // Lists
+                const ulMatch = line.match(/^[-*]\s+(.+)$/);
+                if (ulMatch) text = ulMatch[1];
+                const olMatch = line.match(/^\d+\.\s+(.+)$/);
+                if (olMatch) text = olMatch[1];
+                // Task
+                const taskMatch = line.match(/^[-*]\s+\[[ x]\]\s+(.+)$/i);
+                if (taskMatch) text = taskMatch[1];
+                // Quote
+                if (line.startsWith('> ')) text = line.slice(2);
+
+                // Parse inline formatting
+                const segments = window.syncHub?.parseInlineFormatting
+                    ? window.syncHub.parseInlineFormatting(text)
+                    : [{ type: 'text', text }];
+
+                return { type, segments };
+            },
+        };
+    }
+
+    normalizeLanguage(lang) {
+        if (!lang) return 'plaintext';
+        const aliases = {
+            'js': 'javascript', 'ts': 'typescript', 'py': 'python',
+            'rb': 'ruby', 'sh': 'bash', 'yml': 'yaml',
+        };
+        return aliases[lang.toLowerCase()] || lang.toLowerCase();
     }
 
     // =========================================================================
