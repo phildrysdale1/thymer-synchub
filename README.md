@@ -14,30 +14,50 @@ A plugin architecture for syncing external data sources into [Thymer](https://th
     │    │Claude│ │ Qwen │ │Llama │  ← Chat on any page  │
     │    └──┬───┘ └──┬───┘ └──┬───┘                      │
     │       └────────┴────────┘                          │
-    │                │ uses tools                        │
+    │                │ uses collection tools             │
     ├────────────────┼───────────────────────────────────┤
     │                ▼                                   │
-    │             SYNC HUB                               │
-    │        (the orchestrator)                          │
-    │                                                    │
-    │   ┌──────┐ ┌────────┐ ┌────────┐ ┌────────┐       │
-    │   │GitHub│ │Readwise│ │G. Cal  │ │Telegram│       │
-    │   └──┬───┘ └───┬────┘ └───┬────┘ └───┬────┘       │
-    │      └─────────┴──────────┴──────────┘            │
-    │                     │                             │
-    │         ┌───────────┼───────────┐                 │
-    │         ▼           ▼           ▼                 │
-    │      ISSUES     CAPTURES     CALENDAR             │
-    │      (baskets of clean laundry)                   │
+    │   ┌─────────────────────────────────────────────┐ │
+    │   │              COLLECTIONS                     │ │
+    │   │         (baskets with built-in tools)        │ │
+    │   │                                              │ │
+    │   │  ISSUES      CAPTURES    CALENDAR   PEOPLE   │ │
+    │   │  find()      find()      today()    find()   │ │
+    │   │  search()    search()    upcoming() search() │ │
+    │   │  get()       recent()    search()   needs_   │ │
+    │   │  summarize() by_book()   followup() contact()│ │
+    │   └──────────────────────────────────────────────┘ │
+    │                ▲                                   │
+    │   ┌────────────┴────────────┐                     │
+    │   │        SYNC HUB         │ (the orchestrator)  │
+    │   └────────────┬────────────┘                     │
+    │   ┌────────────┴────────────────────────┐         │
+    │   │         SYNC PLUGINS                │         │
+    │   │  GitHub → Issues                    │         │
+    │   │  Readwise → Captures                │         │
+    │   │  Google Calendar → Calendar         │         │
+    │   │  Google Contacts → People           │         │
+    │   │  (future: Jira, GitLab, Outlook...) │         │
+    │   └─────────────────────────────────────┘         │
     └─────────────────────────────────────────────────────┘
 ```
 
 **Same baskets. Different machines. Smart operators.**
 
-- **Agent Hub**: AI assistants that chat on pages and use tools ([docs](agenthub/))
-- **Sync Hub**: The orchestrator that schedules syncs and registers tools
-- **Collections**: Source-agnostic "real world objects" (Issues, Captures, Calendar, Chats)
-- **Plugins**: "Washing machines" that fetch from sources and output clean data
+- **Agent Hub**: AI assistants that chat on pages and use collection tools ([docs](agenthub/))
+- **Collections**: Source-agnostic data + query tools (Issues, Captures, Calendar, People)
+- **Sync Hub**: The orchestrator that schedules syncs
+- **Sync Plugins**: "Washing machines" that fetch from sources and fill collections
+
+### Why Collections Own Tools
+
+When you add a Jira plugin, it syncs to the Issues collection. The Issues collection already has `find()`, `search()`, and `summarize_open()` tools. Agents can immediately query Jira issues without any new tool code.
+
+```
+GitHub  ──┐
+GitLab  ──┼──→ Issues Collection ──→ find(), search(), get()
+Jira    ──┘         (one set of tools for all sources)
+```
 
 ## Features
 
@@ -68,17 +88,21 @@ Create Collection Plugins in Thymer for each basket you need:
 - Paste `synchub/collection.json` → Configuration
 - Paste `synchub/plugin.js` → Custom Code
 
-**Issues**:
+**Issues** (for GitHub, GitLab, Jira, etc.):
 - Paste `collections/issues/collection.json` → Configuration
+- Paste `collections/issues/plugin.js` → Custom Code (provides query tools)
 
-**Captures** (for Readwise):
+**Captures** (for Readwise, web clips, etc.):
 - Paste `collections/captures/collection.json` → Configuration
+- Paste `collections/captures/plugin.js` → Custom Code (provides query tools)
 
-**Calendar** (for Google Calendar):
+**Calendar** (for Google Calendar, Outlook, etc.):
 - Paste `collections/calendar/collection.json` → Configuration
+- Paste `collections/calendar/plugin.js` → Custom Code (provides query tools)
 
-**People** (for Google Contacts):
+**People** (for Google Contacts, LinkedIn, etc.):
 - Paste `collections/people/collection.json` → Configuration
+- Paste `collections/people/plugin.js` → Custom Code (provides query tools)
 
 **Chats** (for AI conversations):
 - Paste `collections/chats/collection.json` → Configuration
@@ -239,9 +263,31 @@ class Plugin extends AppPlugin {
 - [CREATING_PLUGINS.md](CREATING_PLUGINS.md) - Detailed walkthrough
 - [SDK Notes](docs/sdk-notes.md) - Gotchas and workarounds
 
+## Collection Tools
+
+Each collection provides query tools that agents can use. Tools are source-agnostic — they work with data from any sync plugin.
+
+| Collection | Tools | Description |
+|------------|-------|-------------|
+| **Issues** | `find`, `get`, `search`, `summarize_open` | Query issues by state, repo, type, assignee |
+| **Captures** | `find`, `search`, `recent`, `by_book` | Find highlights by source, author, or content |
+| **Calendar** | `find`, `today`, `upcoming`, `needs_followup`, `search` | Query events by date, calendar, or status |
+| **People** | `find`, `search`, `needs_contact`, `at_organization`, `recent_contacts` | Find contacts, track relationship health |
+
+Example agent interaction:
+```
+User: What are my open bugs?
+
+Agent: [calls Issues.find(state="Open", type="Bug")]
+       You have 3 open bugs:
+       - [[guid1]] Fix login timeout
+       - [[guid2]] API rate limit issue
+       - [[guid3]] Mobile layout broken
+```
+
 ## Documentation
 
-- [AgentHub](agenthub/) - AI agents that chat on pages and use tools
+- [AgentHub](agenthub/) - AI agents that chat on pages and use collection tools
 - [Architecture](docs/architecture.md) - The Laundromat explained
 - [SDK Notes](docs/sdk-notes.md) - Gotchas and workarounds
 - [Field Mappings](docs/field-mappings.md) - Mapping source fields to collections
