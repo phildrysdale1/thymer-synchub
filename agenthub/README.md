@@ -101,6 +101,8 @@ For local models via MLX:
 | Custom Model | `mlx-community/Qwen2.5-32B-Instruct-4bit` |
 | Custom Endpoint | `https://your-server:8080/v1/chat/completions` |
 
+> **Running Local Models?** Setting up a local LLM that your browser can call requires solving CORS and HTTPS challenges. See [Running Local AI Models](RUNNING_LOCAL.md) for a complete guide using Caddy + Cloudflare DNS.
+
 ## Features
 
 ### Chat on Any Page
@@ -254,6 +256,7 @@ window.addEventListener('synchub-ready', () => this.initialize());
 
 ## Related
 
+- [Running Local AI Models](RUNNING_LOCAL.md) - HTTPS/CORS setup for local LLMs with Caddy + Cloudflare
 - [SyncHub](../synchub/) - The orchestrator AgentHub depends on
 - [Chats Collection](../collections/chats/) - Dedicated collection for AI conversations
 - [Issues Collection](../collections/issues/) - Example of tool-enabled collection

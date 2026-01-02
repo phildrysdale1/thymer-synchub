@@ -288,6 +288,7 @@ Agent: [calls Issues.find(state="Open", type="Bug")]
 ## Documentation
 
 - [AgentHub](agenthub/) - AI agents that chat on pages and use collection tools
+- [Running Local AI Models](agenthub/RUNNING_LOCAL.md) - HTTPS/CORS setup for local LLMs (MLX, Ollama) with Caddy + Cloudflare
 - [Architecture](docs/architecture.md) - The Laundromat explained
 - [SDK Notes](docs/sdk-notes.md) - Gotchas and workarounds
 - [Field Mappings](docs/field-mappings.md) - Mapping source fields to collections
