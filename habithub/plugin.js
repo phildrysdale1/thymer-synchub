@@ -1,12 +1,12 @@
 /**
  * HabitHub - Track habits and break vices
  *
- * Journal is the source of truth. Habits are logged with:
- *   - [x] [[HabitName]] 30m
- *   - [x] [[HabitName]] 5
- *   - [x] [[HabitName]]
+ * Habit page logs are the source of truth. Multiple inputs:
+ *   - Journal entries: [x] [[HabitName]] 30m
+ *   - Dashboard buttons: +1/+10 quick log
+ *   - Future: API, agents, automations
  *
- * HabitHub scans journals and aggregates stats.
+ * All inputs write to habit logs. Stats calculated from logs.
  */
 
 // Dashboard CSS
@@ -117,6 +117,15 @@ const DASHBOARD_CSS = `
     .habit-today-item[data-done="true"] .habit-today-value {
         color: var(--enum-green-fg);
     }
+    /* Fail status for vices over target */
+    .habit-today-item[data-status="fail"] .habit-today-checkbox {
+        background: var(--enum-red-bg);
+        border-color: var(--enum-red-bg);
+        color: white;
+    }
+    .habit-today-item[data-status="fail"] .habit-today-value {
+        color: var(--enum-red-fg);
+    }
 
     /* Section Title */
     .habit-section-title {
@@ -159,8 +168,27 @@ const DASHBOARD_CSS = `
         transform: translateY(-2px);
         box-shadow: 0 8px 24px rgba(0,0,0,0.3);
     }
-    .habit-card[data-kind="vice"] {
-        background: linear-gradient(135deg, var(--bg-hover) 0%, rgba(218, 54, 51, 0.05) 100%);
+    /* Vice card colors based on today's value vs target */
+    .habit-card.vice-green {
+        background: linear-gradient(135deg, var(--bg-hover) 0%, rgba(76, 175, 80, 0.15) 100%);
+        border-color: rgba(76, 175, 80, 0.3);
+    }
+    .habit-card.vice-green .habit-card-value {
+        color: #4caf50;
+    }
+    .habit-card.vice-amber {
+        background: linear-gradient(135deg, var(--bg-hover) 0%, rgba(255, 152, 0, 0.15) 100%);
+        border-color: rgba(255, 152, 0, 0.3);
+    }
+    .habit-card.vice-amber .habit-card-value {
+        color: #ff9800;
+    }
+    .habit-card.vice-red {
+        background: linear-gradient(135deg, var(--bg-hover) 0%, rgba(218, 54, 51, 0.15) 100%);
+        border-color: rgba(218, 54, 51, 0.3);
+    }
+    .habit-card.vice-red .habit-card-value {
+        color: #da3633;
     }
     .habit-card-header {
         display: flex;
@@ -216,9 +244,7 @@ const DASHBOARD_CSS = `
         color: var(--enum-green-fg);
         line-height: 1;
     }
-    .habit-card[data-kind="vice"] .habit-card-value {
-        color: var(--enum-blue-fg);
-    }
+    /* Vice value colors now controlled by .vice-green/amber/red classes */
     .habit-card-unit {
         font-size: 11px;
         color: var(--text-muted);
@@ -241,14 +267,33 @@ const DASHBOARD_CSS = `
         border-radius: 2px;
         min-height: 3px;
     }
-    .habit-card[data-kind="vice"] .habit-sparkline-bar {
-        background: rgba(248, 81, 73, 0.3);
+    .habit-sparkline-bar.no-data {
+        background: rgba(128, 128, 128, 0.2);
     }
     .habit-sparkline-bar.today {
         background: var(--enum-green-fg);
     }
-    .habit-card[data-kind="vice"] .habit-sparkline-bar.today {
-        background: var(--enum-orange-fg);
+    .habit-sparkline-bar.today.no-data {
+        background: rgba(128, 128, 128, 0.4);
+    }
+    /* Vice sparkline colors */
+    .habit-sparkline-bar.vice-green {
+        background: rgba(76, 175, 80, 0.5);
+    }
+    .habit-sparkline-bar.vice-amber {
+        background: rgba(255, 152, 0, 0.5);
+    }
+    .habit-sparkline-bar.vice-red {
+        background: rgba(218, 54, 51, 0.5);
+    }
+    .habit-sparkline-bar.today.vice-green {
+        background: #4caf50;
+    }
+    .habit-sparkline-bar.today.vice-amber {
+        background: #ff9800;
+    }
+    .habit-sparkline-bar.today.vice-red {
+        background: #da3633;
     }
     .habit-card-footer {
         display: flex;
@@ -351,6 +396,27 @@ class Plugin extends CollectionPlugin {
             icon: 'refresh',
             onSelected: () => this.syncJournalWithToast()
         });
+
+        // Debug command to dump page props
+        this.ui.addCommandPaletteCommand({
+            label: 'HabitHub: Dump Page Props',
+            icon: 'bug',
+            onSelected: () => this.dumpPageProps()
+        });
+    }
+
+    async dumpPageProps() {
+        const record = this.ui.getActivePanel()?.getActiveRecord();
+        if (!record) {
+            console.log('[HabitHub] No active record');
+            return;
+        }
+        const lineItems = await record.getLineItems();
+        console.log(`[HabitHub] === Props for "${record.getName()}" ===`);
+        for (const item of lineItems) {
+            const text = item.segments?.map(s => typeof s.text === 'string' ? s.text : '[obj]').join('') || '';
+            console.log(`[HabitHub] ${item.type}: "${text.substring(0, 40)}" props:`, item.props);
+        }
     }
 
     async openLogDialog() {
@@ -434,28 +500,51 @@ class Plugin extends CollectionPlugin {
                     return;
                 }
 
-                // Quick log buttons
+                // Quick log buttons (+1 and +10 per habit)
                 const quickLog = document.createElement('div');
                 quickLog.className = 'habit-quick-log';
                 for (const habit of habits) {
                     const emoji = this.getEmojiFromChoice(habit.prop('emoji')?.choice());
-                    const name = habit.getName() || 'Habit';
-                    const btn = document.createElement('button');
-                    btn.className = 'habit-quick-log-btn';
-                    btn.innerHTML = `<span class="emoji">${emoji}</span> ${this.escapeHtml(name)}`;
-                    btn.addEventListener('click', () => this.logHabit(habit));
-                    quickLog.appendChild(btn);
+                    const verb = habit.prop('verb')?.text() || habit.getName() || 'Habit';
+
+                    // +1 button
+                    const btn1 = document.createElement('button');
+                    btn1.className = 'habit-quick-log-btn';
+                    btn1.innerHTML = `<span class="emoji">${emoji}</span> +1 ${this.escapeHtml(verb)}`;
+                    btn1.addEventListener('click', () => this.logHabit(habit, 1));
+                    quickLog.appendChild(btn1);
+
+                    // +10 button
+                    const btn10 = document.createElement('button');
+                    btn10.className = 'habit-quick-log-btn';
+                    btn10.innerHTML = `<span class="emoji">${emoji}</span> +10 ${this.escapeHtml(verb)}`;
+                    btn10.addEventListener('click', () => this.logHabit(habit, 10));
+                    quickLog.appendChild(btn10);
                 }
                 container.appendChild(quickLog);
+
+                // Pre-fetch stats for all habits (used for Today section and cards)
+                const habitStats = new Map();
+                for (const habit of habits) {
+                    habitStats.set(habit.guid, await this.getHabitStats(habit));
+                }
 
                 // Today section
                 const todaySection = document.createElement('div');
                 todaySection.className = 'habit-today';
 
-                const todayLogs = await this.getTodayLogs();
-                const completedToday = habits.filter(h =>
-                    todayLogs.some(log => log.habitGuid === h.guid)
-                ).length;
+                // Calculate completion - vices: under target = success, habits: met target or logged
+                const completedToday = habits.filter(h => {
+                    const stats = habitStats.get(h.guid);
+                    const kind = h.prop('kind')?.choice() || 'habit';
+                    const target = h.prop('target')?.number() || 0;
+                    const todayVal = stats?.todayTotal || 0;
+                    if (kind === 'vice') {
+                        return todayVal <= target; // Vice: under limit = success
+                    } else {
+                        return target > 0 ? todayVal >= target : todayVal > 0; // Habit: met target or logged
+                    }
+                }).length;
 
                 todaySection.innerHTML = `
                     <div class="habit-today-header">
@@ -464,20 +553,30 @@ class Plugin extends CollectionPlugin {
                     </div>
                     <div class="habit-today-list">
                         ${habits.map(habit => {
-                            const log = todayLogs.find(l => l.habitGuid === habit.guid);
-                            const done = !!log;
+                            const stats = habitStats.get(habit.guid);
+                            const todayValue = stats?.todayTotal || 0;
                             const kind = habit.prop('kind')?.choice() || 'habit';
-                            const target = habit.prop('target')?.number();
+                            const target = habit.prop('target')?.number() || 0;
                             const unit = habit.prop('unit')?.text() || '';
                             const emoji = this.getEmojiFromChoice(habit.prop('emoji')?.choice());
 
+                            // Done logic: vice = under target, habit = met target or logged
+                            let done, status;
+                            if (kind === 'vice') {
+                                done = todayValue <= target;
+                                status = todayValue === 0 ? 'perfect' : (todayValue <= target ? 'pass' : 'fail');
+                            } else {
+                                done = target > 0 ? todayValue >= target : todayValue > 0;
+                                status = done ? 'pass' : (todayValue > 0 ? 'partial' : 'none');
+                            }
+
                             return `
-                                <div class="habit-today-item" data-done="${done}" data-kind="${kind}">
-                                    <div class="habit-today-checkbox">${done ? '✓' : ''}</div>
+                                <div class="habit-today-item" data-done="${done}" data-kind="${kind}" data-status="${status}">
+                                    <div class="habit-today-checkbox">${done ? '✓' : (status === 'fail' ? '✗' : '')}</div>
                                     <span class="emoji">${emoji}</span>
                                     <div class="habit-today-name">${this.escapeHtml(habit.getName() || 'Habit')}</div>
                                     <div class="habit-today-target">${target ? `Target: ${target}${unit}` : ''}</div>
-                                    <div class="habit-today-value">${log?.value || '—'}</div>
+                                    <div class="habit-today-value">${todayValue || '—'}</div>
                                 </div>
                             `;
                         }).join('')}
@@ -491,21 +590,19 @@ class Plugin extends CollectionPlugin {
                 sectionTitle.textContent = 'This Week';
                 container.appendChild(sectionTitle);
 
-                // Habit cards grid + collect stats
+                // Habit cards grid + collect stats (reuse pre-fetched stats)
                 const grid = document.createElement('div');
                 grid.className = 'habit-grid';
 
                 let totalBestStreak = 0;
-                let habitsCompletedToday = 0;
 
                 for (const habit of habits) {
-                    const card = await this.renderHabitCard(habit, viewContext);
+                    const stats = habitStats.get(habit.guid);
+                    const card = await this.renderHabitCard(habit, viewContext, stats);
                     grid.appendChild(card);
 
                     // Collect stats for summary
-                    const stats = await this.getHabitStats(habit);
-                    if (stats.bestStreak > totalBestStreak) totalBestStreak = stats.bestStreak;
-                    if (stats.todayTotal > 0) habitsCompletedToday++;
+                    if (stats?.bestStreak > totalBestStreak) totalBestStreak = stats.bestStreak;
                 }
                 container.appendChild(grid);
 
@@ -518,7 +615,7 @@ class Plugin extends CollectionPlugin {
                         <span>habits</span>
                     </div>
                     <div class="habit-summary-item">
-                        <span class="habit-summary-value">${habitsCompletedToday}/${habits.length}</span>
+                        <span class="habit-summary-value">${completedToday}/${habits.length}</span>
                         <span>today</span>
                     </div>
                     <div class="habit-summary-item">
@@ -529,6 +626,8 @@ class Plugin extends CollectionPlugin {
                 container.appendChild(summary);
             };
 
+            let isRendering = false;
+
             return {
                 onLoad: async () => {
                     viewContext.makeWideLayout();
@@ -537,12 +636,18 @@ class Plugin extends CollectionPlugin {
                     container.className = 'habit-dashboard';
                     element.appendChild(container);
 
-                    // Trigger journal scan when dashboard opens
+                    // Trigger journal scan when dashboard opens (once)
                     await this.scanJournalForHabits();
                 },
                 onRefresh: async ({ records: newRecords }) => {
-                    records = newRecords;
-                    await renderDashboard();
+                    if (isRendering) return; // Prevent re-entrant rendering
+                    isRendering = true;
+                    try {
+                        records = newRecords;
+                        await renderDashboard();
+                    } finally {
+                        isRendering = false;
+                    }
                 },
                 onPanelResize: () => {},
                 onDestroy: () => {
@@ -556,30 +661,46 @@ class Plugin extends CollectionPlugin {
         });
     }
 
-    async renderHabitCard(habit, viewContext) {
+    async renderHabitCard(habit, viewContext, preloadedStats = null) {
         const name = habit.getName() || 'Habit';
         const kind = habit.prop('kind')?.choice() || 'habit';
         const emoji = this.getEmojiFromChoice(habit.prop('emoji')?.choice());
         const schedule = habit.prop('schedule')?.choice() || 'daily';
         const target = habit.prop('target')?.number() || 0;
+        const weeklyTarget = habit.prop('weekly_target')?.number() || 0;
         const unit = habit.prop('unit')?.text() || '';
 
-        // Get stats from log entries (source of truth)
-        const stats = await this.getHabitStats(habit);
-        const { weeklyTotal, streak, logs } = stats;
+        // Calculate effective weekly target
+        let effectiveWeeklyTarget = weeklyTarget;
+        if (!effectiveWeeklyTarget && target) {
+            // Calculate from daily target based on schedule
+            const daysPerSchedule = { daily: 7, weekdays: 5, weekends: 2, weekly: 1 };
+            effectiveWeeklyTarget = target * (daysPerSchedule[schedule] || 7);
+        }
+
+        // Use preloaded stats or fetch (source of truth is log entries)
+        const stats = preloadedStats || await this.getHabitStats(habit);
+        const { weeklyTotal, todayTotal, streak, logs } = stats;
 
         const card = document.createElement('div');
         card.className = 'habit-card';
         card.setAttribute('data-kind', kind);
+        // Color class will be added after calculation
 
         // Determine streak badge style
         let streakClass = 'dormant';
         let streakIcon = '💤';
-        if (streak > 0) {
-            if (kind === 'vice') {
+        let cardColorClass = '';
+
+        if (kind === 'vice') {
+            // Badge shows days under target
+            if (streak > 0) {
                 streakClass = 'ice';
                 streakIcon = '🧊';
-            } else {
+            }
+        } else {
+            // Habit: fire streak
+            if (streak > 0) {
                 streakClass = 'fire';
                 streakIcon = '🔥';
             }
@@ -588,9 +709,43 @@ class Plugin extends CollectionPlugin {
         // Format value display
         let valueDisplay = weeklyTotal.toString();
         let unitDisplay = 'this week';
-        if (kind === 'vice' && streak > 0) {
-            valueDisplay = `${streak}d`;
-            unitDisplay = 'under target';
+        if (kind === 'vice') {
+            // For vices, show days below target this week (only count days with data)
+            const weekDays = this.getWeekDays(7);
+            let daysBelow = 0;
+            let daysWithData = 0;
+            for (const dayStr of weekDays) {
+                const dayLog = logs?.find(l => l.date === dayStr);
+                if (dayLog) {
+                    daysWithData++;
+                    if (dayLog.value <= target) {
+                        daysBelow++;
+                    }
+                }
+            }
+
+            if (daysWithData > 0) {
+                valueDisplay = `${daysBelow}/${daysWithData}`;
+                unitDisplay = 'days below target';
+
+                // Card color based on ratio of days with data
+                const ratio = daysBelow / daysWithData;
+                if (ratio >= 0.8) {
+                    cardColorClass = 'vice-green';
+                } else if (ratio >= 0.5) {
+                    cardColorClass = 'vice-amber';
+                } else {
+                    cardColorClass = 'vice-red';
+                }
+            } else {
+                valueDisplay = '—';
+                unitDisplay = 'no data this week';
+            }
+        }
+
+        // Add color class for vices
+        if (cardColorClass) {
+            card.classList.add(cardColorClass);
         }
 
         // Build sparkline data from logs (last 7 days)
@@ -615,10 +770,10 @@ class Plugin extends CollectionPlugin {
                 <div class="habit-card-unit">${unitDisplay}</div>
             </div>
             <div class="habit-card-sparkline">
-                ${this.renderSparkline(7, sparklineData)}
+                ${this.renderSparkline(7, sparklineData, kind, target)}
             </div>
             <div class="habit-card-footer">
-                <span>${target ? `◎ ${weeklyTotal}/${target * 7}${unit}` : ''}</span>
+                <span>${effectiveWeeklyTarget ? `◎ ${weeklyTotal}/${effectiveWeeklyTarget}${unit}` : ''}</span>
                 <span class="habit-card-trend">—</span>
             </div>
         `;
@@ -651,13 +806,13 @@ class Plugin extends CollectionPlugin {
         return data;
     }
 
-    renderSparkline(days, data = null) {
+    renderSparkline(days, data = null, kind = 'habit', target = 0) {
         // If no data, show empty bars
         if (!data || data.length === 0 || data.every(v => v === 0)) {
             let html = '';
             for (let i = 0; i < days; i++) {
                 const isToday = i === days - 1;
-                html += `<div class="habit-sparkline-bar${isToday ? ' today' : ''}" style="height: 3px"></div>`;
+                html += `<div class="habit-sparkline-bar no-data${isToday ? ' today' : ''}" style="height: 3px"></div>`;
             }
             return html;
         }
@@ -669,7 +824,23 @@ class Plugin extends CollectionPlugin {
             const val = data[i] || 0;
             const height = Math.max((val / maxVal) * 100, 3);
             const isToday = i === days - 1;
-            html += `<div class="habit-sparkline-bar${isToday ? ' today' : ''}" style="height: ${height}%"></div>`;
+
+            // Determine color class
+            let colorClass = '';
+            if (val === 0) {
+                colorClass = 'no-data';
+            } else if (kind === 'vice' && target > 0) {
+                const halfTarget = target / 2;
+                if (val <= halfTarget) {
+                    colorClass = 'vice-green';
+                } else if (val <= target) {
+                    colorClass = 'vice-amber';
+                } else {
+                    colorClass = 'vice-red';
+                }
+            }
+
+            html += `<div class="habit-sparkline-bar${colorClass ? ' ' + colorClass : ''}${isToday ? ' today' : ''}" style="height: ${height}%"></div>`;
         }
         return html;
     }
@@ -854,46 +1025,61 @@ class Plugin extends CollectionPlugin {
             const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
             const lineItems = await habit.getLineItems();
 
-            // Find Log heading and today's entry
+            // Find Log heading and today's entry (by props, not text parsing!)
             let logHeading = null;
             let todayEntry = null;
 
             for (const item of lineItems) {
-                const text = item.segments?.map(s => s.text || '').join('') || '';
-                if (item.type === 'heading' && text === 'Log') {
-                    logHeading = item;
+                if (item.type === 'heading') {
+                    const text = item.segments?.map(s => s.text || '').join('') || '';
+                    if (text === 'Log') logHeading = item;
                 }
-                if (text.startsWith(today)) {
+                // Find today's entry by props - instant lookup!
+                if (item.props?.habit_date === today) {
                     todayEntry = item;
                 }
             }
 
-            // Calculate new total for today
+            // Calculate new total for today (read from props if exists)
             let todayTotal = value || 1;
-            if (todayEntry) {
-                const existingText = todayEntry.segments?.map(s => s.text || '').join('') || '';
-                const match = existingText.match(/- (\d+(?:\.\d+)?)/);
-                if (match) {
-                    todayTotal = parseFloat(match[1]) + (value || 1);
-                }
+            if (todayEntry && todayEntry.props?.habit_value) {
+                todayTotal = todayEntry.props.habit_value + (value || 1);
             }
 
-            // Build entry text
+            // Build entry text (human readable, but props are source of truth)
             const logEntry = todayTotal > 1 ? `${today} - ${todayTotal}${unit}` : `${today}`;
 
             if (todayEntry) {
-                // Update existing entry
+                // Update existing entry - update both text and props
                 todayEntry.setSegments([{ type: 'text', text: logEntry }]);
-                console.log('[HabitHub] Updated log:', logEntry);
+                todayEntry.setMetaProperties({ habit_date: today, habit_value: todayTotal });
+                console.log('[HabitHub] Updated log:', logEntry, 'props:', { habit_date: today, habit_value: todayTotal });
             } else if (window.syncHub?.insertMarkdown) {
                 // Create new entry
                 if (!logHeading) {
-                    // No log section yet - create at top of page
-                    await window.syncHub.insertMarkdown(`## Log\n${logEntry}`, habit, null);
+                    // No log section yet - create warning banner + heading + entry
+                    // First create the flaming "DON'T EDIT" banner
+                    const banner = await habit.createLineItem(null, null, 'ascii-banner');
+                    if (banner) {
+                        banner.setSegments([{ type: 'text', text: "DON'T EDIT" }]);
+                        banner.setMetaProperties({ banner_style: 'flames' });
+                    }
+                    // Then add heading and first entry after banner
+                    await window.syncHub.insertMarkdown(`## Log\n${logEntry}`, habit, banner);
                 } else {
                     await window.syncHub.insertMarkdown(logEntry, habit, logHeading);
                 }
-                console.log('[HabitHub] Added log:', logEntry);
+
+                // Find the newly created entry and set props on it
+                const newLineItems = await habit.getLineItems();
+                const newEntry = newLineItems.find(item => {
+                    const text = item.segments?.map(s => s.text || '').join('') || '';
+                    return text.startsWith(today) && !item.props?.habit_date;
+                });
+                if (newEntry) {
+                    newEntry.setMetaProperties({ habit_date: today, habit_value: todayTotal });
+                    console.log('[HabitHub] Added log with props:', logEntry);
+                }
             }
         } catch (e) {
             console.error('[HabitHub] Error updating habit log:', e);
@@ -939,39 +1125,34 @@ class Plugin extends CollectionPlugin {
     // =========================================================================
 
     /**
-     * Log a habit to today's journal
+     * Log a habit directly to the habit log (skips journal for less noise)
      */
-    async logHabit(habit, value = null) {
-        const journal = await this.getTodayJournal();
-        if (!journal) {
+    async logHabit(habit, value = 1) {
+        const name = habit.getName();
+        const unit = habit.prop('unit')?.text() || '';
+
+        try {
+            // Write directly to habit log (source of truth)
+            await this.appendToHabitLog(habit, value, unit);
+
+            // Touch the record to trigger Thymer's refresh infrastructure
+            habit.prop('updated_at')?.set(new Date());
+
             this.ui.addToaster({
                 title: 'HabitHub',
-                message: 'Could not find today\'s journal',
+                message: `Logged ${name}${value > 1 ? ` (+${value}${unit})` : ''}`,
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+        } catch (e) {
+            console.error('[HabitHub] Error logging habit:', e);
+            this.ui.addToaster({
+                title: 'HabitHub',
+                message: 'Failed to log habit',
                 dismissible: true,
                 autoDestroyTime: 3000,
             });
-            return;
         }
-
-        const name = habit.getName();
-        const valueType = habit.prop('value_type')?.choice() || 'boolean';
-        const unit = habit.prop('unit')?.text() || '';
-
-        // Build the journal entry
-        let entry = `- [x] [[${habit.guid}]]`;
-        if (value && valueType !== 'boolean') {
-            entry += ` ${value}${unit}`;
-        }
-
-        // Insert into journal
-        await this.insertIntoJournal(journal, entry);
-
-        this.ui.addToaster({
-            title: 'HabitHub',
-            message: `Logged ${name}${value ? ` (${value}${unit})` : ''}`,
-            dismissible: true,
-            autoDestroyTime: 2000,
-        });
     }
 
     async getTodayJournal() {
@@ -1029,20 +1210,18 @@ class Plugin extends CollectionPlugin {
 
     /**
      * Calculate habit stats from log entries in the habit page
-     * Log format: "2026-01-02 - 40" or "2026-01-02" (boolean)
+     * Reads from props (habit_date, habit_value) - instant, no text parsing!
      */
     async getHabitStats(habit) {
         const lineItems = await habit.getLineItems();
 
-        // Find log entries (lines starting with date pattern)
+        // Find log entries by props - instant lookup!
         const logs = [];
         for (const item of lineItems) {
-            const text = item.segments?.[0]?.text || '';
-            const match = text.match(/^(\d{4}-\d{2}-\d{2})(?:\s*-\s*(\d+))?/);
-            if (match) {
+            if (item.props?.habit_date) {
                 logs.push({
-                    date: match[1],
-                    value: match[2] ? parseInt(match[2]) : 1
+                    date: item.props.habit_date,
+                    value: item.props.habit_value || 1
                 });
             }
         }
@@ -1116,6 +1295,21 @@ class Plugin extends CollectionPlugin {
         const d = new Date(dateStr);
         d.setDate(d.getDate() - 1);
         return d.toISOString().slice(0, 10);
+    }
+
+    /**
+     * Get array of date strings for last N days (including today)
+     * Returns oldest first
+     */
+    getWeekDays(days) {
+        const result = [];
+        const today = new Date();
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(d.getDate() - i);
+            result.push(d.toISOString().slice(0, 10));
+        }
+        return result;
     }
 
     // =========================================================================

@@ -340,6 +340,15 @@
       "type": "text"
     },
     {
+      "icon": "ti-vocabulary",
+      "id": "verb",
+      "label": "Verb",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
       "icon": "ti-trophy",
       "id": "goal_value",
       "label": "Goal Value",
