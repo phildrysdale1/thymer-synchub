@@ -1154,6 +1154,7 @@ Title:`;
             model,
             max_tokens: 4096,
             stream: true,
+            stream_options: { include_usage: true },  // Request token counts in stream
             messages: openaiMessages,
         };
 
@@ -1398,6 +1399,7 @@ Title:`;
         const requestBody = {
             model: customModel || 'default',
             stream: true,
+            stream_options: { include_usage: true },  // Request token counts in stream
             messages: customMessages,
         };
 
