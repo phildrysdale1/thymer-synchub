@@ -288,6 +288,20 @@
   "custom": {},
   "views": [
     {
+      "id": "VSYNCHUB000",
+      "shown": true,
+      "icon": "ti-dashboard",
+      "label": "Dashboard",
+      "description": "Grafana-style sync status overview",
+      "field_ids": [],
+      "type": "custom",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "asc",
+      "sort_field_id": "plugin_id",
+      "opts": {}
+    },
+    {
       "id": "VSYNCHUB001",
       "shown": true,
       "icon": "",

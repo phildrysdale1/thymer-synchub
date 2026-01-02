@@ -13,6 +13,167 @@
 // Markdown config
 const BLANK_LINE_BEFORE_HEADINGS = true;
 
+// Dashboard CSS
+const DASHBOARD_CSS = `
+    .sync-dashboard {
+        padding: 24px;
+        font-family: var(--font-family);
+    }
+    .sync-dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .sync-card {
+        background: var(--bg-hover);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 20px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .sync-card:hover {
+        background: var(--bg-active, var(--bg-hover));
+        border-color: rgba(255,255,255,0.2);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        transform: translateY(-2px);
+    }
+    .sync-card[data-status="error"] {
+        border-color: var(--enum-red-bg);
+    }
+    .sync-card[data-status="syncing"] {
+        border-color: var(--enum-blue-bg);
+    }
+    .sync-card[data-enabled="no"] {
+        opacity: 0.6;
+        border-style: dashed;
+    }
+    .sync-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .sync-card-icon {
+        font-size: 20px;
+        color: var(--text-muted);
+    }
+    .sync-card-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-default);
+        flex: 1;
+    }
+    .sync-card-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--enum-green-bg);
+    }
+    .sync-card-dot.error {
+        background: var(--enum-red-bg);
+    }
+    .sync-card-dot.stale {
+        background: var(--enum-orange-bg);
+    }
+    .sync-card-dot.disabled {
+        background: var(--text-muted);
+    }
+    .sync-card-dot.syncing {
+        background: none;
+        width: auto;
+        height: auto;
+    }
+    .sync-card-dot.syncing .ti-blinking-dot {
+        color: var(--enum-blue-fg);
+        font-size: 20px;
+    }
+    .sync-card-body {
+        text-align: center;
+        padding: 8px 0;
+    }
+    .sync-card-value {
+        font-size: 36px;
+        font-weight: 700;
+        color: var(--text-default);
+        line-height: 1;
+        margin-bottom: 4px;
+    }
+    .sync-card-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .sync-card-footer {
+        text-align: center;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-default);
+    }
+    .sync-card-time {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+    .sync-card-error {
+        font-size: 11px;
+        color: var(--enum-red-fg);
+        margin-top: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .sync-dashboard-summary {
+        background: var(--bg-default);
+        border: 1px solid var(--border-default);
+        border-radius: 12px;
+        padding: 16px 24px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 24px;
+        color: var(--text-muted);
+        font-size: 14px;
+    }
+    .sync-summary-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .sync-summary-value {
+        font-weight: 600;
+        color: var(--text-default);
+    }
+    .sync-summary-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+    .sync-summary-dot.healthy { background: var(--enum-green-bg); }
+    .sync-summary-dot.warning { background: var(--enum-orange-bg); }
+    .sync-summary-dot.error { background: var(--enum-red-bg); }
+    .sync-dashboard-empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+    .sync-dashboard-empty-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    .sync-dashboard-empty-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-default);
+        margin-bottom: 8px;
+    }
+`;
+
 class Plugin extends CollectionPlugin {
 
     async onLoad() {
@@ -90,6 +251,9 @@ class Plugin extends CollectionPlugin {
             onSelected: () => this.resetStuckSyncs()
         });
 
+        // Register Dashboard view
+        this.registerDashboardView();
+
         // Start the scheduler
         this.startScheduler();
 
@@ -118,6 +282,201 @@ class Plugin extends CollectionPlugin {
         }
         this.stopScheduler();
         delete window.syncHub;
+    }
+
+    /**
+     * Register the Dashboard custom view for Grafana-style singlestats
+     */
+    registerDashboardView() {
+        this.ui.injectCSS(DASHBOARD_CSS);
+
+        this.views.register("Dashboard", (viewContext) => {
+            const element = viewContext.getElement();
+            let records = [];
+            let container = null;
+
+            /**
+             * Get health status for a plugin record
+             * @param {Object} record - Plugin record
+             * @returns {{dotClass: string, timeText: string, isHealthy: boolean}}
+             */
+            const getHealthStatus = (record) => {
+                const enabled = record.prop('enabled')?.choice();
+                const status = record.prop('status')?.choice();
+                const lastRun = record.prop('last_run')?.date();
+                const lastError = record.prop('last_error')?.text();
+
+                if (enabled === 'no') {
+                    return { dotClass: 'disabled', timeText: 'Disabled', isHealthy: true };
+                }
+
+                if (status === 'syncing') {
+                    return { dotClass: 'syncing', timeText: 'Syncing...', isHealthy: true };
+                }
+
+                if (status === 'error') {
+                    const errorText = lastError ? lastError.substring(0, 50) : 'Unknown error';
+                    return { dotClass: 'error', timeText: errorText, isHealthy: false };
+                }
+
+                if (!lastRun) {
+                    return { dotClass: 'stale', timeText: 'Never synced', isHealthy: false };
+                }
+
+                const now = new Date();
+                const lastRunDate = new Date(lastRun);
+                const hoursSince = (now - lastRunDate) / (1000 * 60 * 60);
+
+                if (hoursSince > 24) {
+                    return {
+                        dotClass: 'stale',
+                        timeText: this.formatRelativeTime(lastRunDate),
+                        isHealthy: false
+                    };
+                }
+
+                return {
+                    dotClass: '',
+                    timeText: this.formatRelativeTime(lastRunDate),
+                    isHealthy: true
+                };
+            };
+
+            /**
+             * Render the dashboard
+             */
+            const renderDashboard = () => {
+                if (!container) return;
+                container.innerHTML = '';
+
+                // Filter to plugin records (have plugin_id)
+                const plugins = records.filter(r => r.prop('plugin_id')?.text());
+
+                if (plugins.length === 0) {
+                    container.innerHTML = `
+                        <div class="sync-dashboard-empty">
+                            <div class="sync-dashboard-empty-icon">📡</div>
+                            <div class="sync-dashboard-empty-title">No Sync Plugins</div>
+                            <div>Install a sync plugin to see it here</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Create card grid
+                const grid = document.createElement('div');
+                grid.className = 'sync-dashboard-grid';
+
+                let healthyCount = 0;
+                let errorCount = 0;
+                let enabledCount = 0;
+
+                plugins.forEach(record => {
+                    const pluginId = record.prop('plugin_id')?.text() || 'unknown';
+                    const pluginName = record.getName() || pluginId;
+                    const enabled = record.prop('enabled')?.choice();
+                    const status = record.prop('status')?.choice() || 'idle';
+                    const interval = record.prop('interval')?.text() || 'manual';
+                    const health = getHealthStatus(record);
+
+                    // Get icon from registered sync function if available
+                    const syncFunc = this.syncFunctions.get(pluginId);
+                    const icon = syncFunc?.icon || 'refresh';
+
+                    if (enabled === 'yes') {
+                        enabledCount++;
+                        if (health.isHealthy) healthyCount++;
+                        else errorCount++;
+                    }
+
+                    const card = document.createElement('div');
+                    card.className = 'sync-card';
+                    card.setAttribute('data-status', status);
+                    card.setAttribute('data-enabled', enabled || 'no');
+
+                    const dotContent = health.dotClass === 'syncing'
+                        ? '<span class="ti ti-blinking-dot"></span>'
+                        : '';
+
+                    card.innerHTML = `
+                        <div class="sync-card-header">
+                            <span class="sync-card-icon ti ti-${icon}"></span>
+                            <span class="sync-card-name">${this.escapeHtml(pluginName)}</span>
+                            <span class="sync-card-dot ${health.dotClass}">${dotContent}</span>
+                        </div>
+                        <div class="sync-card-body">
+                            <div class="sync-card-value">${enabled === 'yes' ? this.escapeHtml(interval) : '—'}</div>
+                            <div class="sync-card-label">${enabled === 'yes' ? 'interval' : 'paused'}</div>
+                        </div>
+                        <div class="sync-card-footer">
+                            <div class="sync-card-time">${this.escapeHtml(health.timeText)}</div>
+                            ${status === 'error' && record.prop('last_error')?.text() ?
+                                `<div class="sync-card-error" title="${this.escapeHtml(record.prop('last_error')?.text() || '')}">${this.escapeHtml(record.prop('last_error')?.text()?.substring(0, 40) || '')}...</div>`
+                                : ''}
+                        </div>
+                    `;
+
+                    // Click to open plugin config
+                    card.addEventListener('click', () => {
+                        viewContext.openRecordInOtherPanel(record.guid);
+                    });
+
+                    grid.appendChild(card);
+                });
+
+                container.appendChild(grid);
+
+                // Summary row
+                const summaryClass = errorCount > 0 ? 'error' : (enabledCount === healthyCount ? 'healthy' : 'warning');
+                const summary = document.createElement('div');
+                summary.className = 'sync-dashboard-summary';
+                summary.innerHTML = `
+                    <div class="sync-summary-item">
+                        <span class="sync-summary-value">${enabledCount}</span>
+                        <span>plugins active</span>
+                    </div>
+                    <div class="sync-summary-item">
+                        <span class="sync-summary-dot ${summaryClass}"></span>
+                        <span>${errorCount > 0 ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : 'All healthy'}</span>
+                    </div>
+                `;
+                container.appendChild(summary);
+            };
+
+            return {
+                onLoad: () => {
+                    viewContext.makeWideLayout();
+                    element.style.overflow = 'auto';
+                    container = document.createElement('div');
+                    container.className = 'sync-dashboard';
+                    element.appendChild(container);
+                },
+                onRefresh: ({ records: newRecords }) => {
+                    records = newRecords;
+                    renderDashboard();
+                },
+                onPanelResize: () => {},
+                onDestroy: () => {
+                    container = null;
+                    records = [];
+                },
+                onFocus: () => {},
+                onBlur: () => {},
+                onKeyboardNavigation: () => {}
+            };
+        });
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     * @param {string} text
+     * @returns {string}
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     async pasteMarkdownFromClipboard() {
