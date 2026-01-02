@@ -663,7 +663,7 @@ class Plugin extends CollectionPlugin {
             nextInputLine?.setSegments([]);
 
             // Update stats (including token usage and generation time) and set status back to Idle
-            await this.updateAgentStats(agentRecord, agent.name, llmResult?.usage, generationMs);
+            await this.updateAgentStats(agentRecord, agent.name, llmResult?.usage, generationMs, activeRecord);
             agentRecord?.prop('status')?.setChoice('idle');
 
             if (llmResult?.usage) {
@@ -1912,7 +1912,7 @@ Title:`;
     // Stats
     // =========================================================================
 
-    async updateAgentStats(record, agentName, usage = null, generationMs = 0) {
+    async updateAgentStats(record, agentName, usage = null, generationMs = 0, chatRecord = null) {
         try {
             const count = record.prop('invocations')?.number() || 0;
             record.prop('invocations')?.set(count + 1);
@@ -1938,12 +1938,13 @@ Title:`;
                 record.prop('last_run')?.set(new DateTime(new Date()).value());
             }
 
-            // Log to journal if available
-            if (window.syncHub?.logToJournal && agentName) {
+            // Log to journal if available - link to chat page, mention agent
+            if (window.syncHub?.logToJournal && chatRecord) {
+                const chatTitle = chatRecord.getName()?.trim() || 'Untitled Chat';
                 await window.syncHub.logToJournal([{
-                    verb: 'chatted with',
-                    title: agentName,
-                    guid: record.guid,
+                    verb: `chatted about`,
+                    title: `${chatTitle} (${agentName})`,
+                    guid: chatRecord.guid,
                     major: false,
                 }], 'verbose');
             }
