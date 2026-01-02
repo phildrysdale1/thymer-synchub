@@ -9,6 +9,171 @@
 // Markdown config (consistent with SyncHub)
 const BLANK_LINE_BEFORE_HEADINGS = true;
 
+// Dashboard CSS
+const DASHBOARD_CSS = `
+    .agent-dashboard {
+        padding: 24px;
+        font-family: var(--font-family);
+    }
+    .agent-dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .agent-card {
+        background: var(--bg-hover);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 8px;
+        padding: 20px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .agent-card:hover {
+        background: var(--bg-active, var(--bg-hover));
+        border-color: rgba(255,255,255,0.2);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        transform: translateY(-2px);
+    }
+    .agent-card[data-status="error"] {
+        border-color: var(--enum-red-bg);
+    }
+    .agent-card[data-status="thinking"] {
+        border-color: var(--enum-blue-bg);
+    }
+    .agent-card[data-enabled="no"] {
+        opacity: 0.6;
+        border-style: dashed;
+    }
+    .agent-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .agent-card-icon {
+        font-size: 20px;
+        color: var(--text-muted);
+    }
+    .agent-card-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-default);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-card-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--enum-green-bg);
+    }
+    .agent-card-dot.error {
+        background: var(--enum-red-bg);
+    }
+    .agent-card-dot.disabled {
+        background: var(--text-muted);
+    }
+    .agent-card-dot.thinking {
+        background: none;
+        width: auto;
+        height: auto;
+    }
+    .agent-card-dot.thinking .ti-blinking-dot {
+        color: var(--enum-blue-fg);
+        font-size: 20px;
+    }
+    .agent-card-body {
+        text-align: center;
+        padding: 8px 0;
+    }
+    .agent-card-value {
+        font-size: 36px;
+        font-weight: 700;
+        color: var(--text-default);
+        line-height: 1;
+        margin-bottom: 4px;
+    }
+    .agent-card-breakdown {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 8px;
+    }
+    .agent-card-breakdown .up { color: var(--enum-orange-fg, #f59e0b); }
+    .agent-card-breakdown .down { color: var(--enum-blue-fg, #3b82f6); }
+    .agent-card-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .agent-card-footer {
+        text-align: center;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-default);
+    }
+    .agent-card-time {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+    .agent-card-invocations {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+    .agent-card-error {
+        font-size: 11px;
+        color: var(--enum-red-fg);
+        margin-top: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-dashboard-summary {
+        background: var(--bg-default);
+        border: 1px solid var(--border-default);
+        border-radius: 12px;
+        padding: 16px 24px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 24px;
+        color: var(--text-muted);
+        font-size: 14px;
+    }
+    .agent-summary-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .agent-summary-value {
+        font-weight: 600;
+        color: var(--text-default);
+    }
+    .agent-dashboard-empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+    .agent-dashboard-empty-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    .agent-dashboard-empty-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-default);
+        margin-bottom: 8px;
+    }
+`;
+
 // System prompt - explains context format to the LLM
 const BASE_SYSTEM_PROMPT = `You are an AI assistant in Thymer, a personal workspace app.
 
@@ -51,6 +216,9 @@ class Plugin extends CollectionPlugin {
 
         // Load agents and register commands (reload page for config changes)
         await this.loadAgents();
+
+        // Register dashboard view
+        this.registerDashboardView();
     }
 
     onUnload() {
@@ -127,6 +295,226 @@ class Plugin extends CollectionPlugin {
         } catch (e) {
             console.error('[AgentHub] Failed to load agents:', e);
         }
+    }
+
+    // =========================================================================
+    // Dashboard View
+    // =========================================================================
+
+    registerDashboardView() {
+        this.ui.injectCSS(DASHBOARD_CSS);
+
+        this.views.register("Dashboard", (viewContext) => {
+            const element = viewContext.getElement();
+            let records = [];
+            let container = null;
+
+            /**
+             * Format number with k/M/G suffix (xxx.x format)
+             * @param {number} num
+             * @returns {string}
+             */
+            const formatTokens = (num) => {
+                if (num === 0) return '0';
+                if (num < 1000) return num.toString();
+                if (num < 1000000) return (num / 1000).toFixed(1) + 'k';
+                if (num < 1000000000) return (num / 1000000).toFixed(1) + 'M';
+                return (num / 1000000000).toFixed(1) + 'G';
+            };
+
+            /**
+             * Format relative time
+             * @param {Date} date
+             * @returns {string}
+             */
+            const formatRelativeTime = (date) => {
+                if (!date) return 'Never';
+                const now = new Date();
+                const diff = now - date;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(diff / 3600000);
+                const days = Math.floor(diff / 86400000);
+
+                if (minutes < 1) return 'Just now';
+                if (minutes < 60) return `${minutes}m ago`;
+                if (hours < 24) return `${hours}h ago`;
+                if (days < 7) return `${days}d ago`;
+                return date.toLocaleDateString();
+            };
+
+            /**
+             * Escape HTML to prevent XSS
+             * @param {string} text
+             * @returns {string}
+             */
+            const escapeHtml = (text) => {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            };
+
+            /**
+             * Render the dashboard
+             */
+            const renderDashboard = () => {
+                if (!container) return;
+                container.innerHTML = '';
+
+                // Filter to enabled agents
+                const agents = records.filter(r => r.getName());
+
+                if (agents.length === 0) {
+                    container.innerHTML = `
+                        <div class="agent-dashboard-empty">
+                            <div class="agent-dashboard-empty-icon">🤖</div>
+                            <div class="agent-dashboard-empty-title">No Agents</div>
+                            <div>Create an agent to see it here</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Create card grid
+                const grid = document.createElement('div');
+                grid.className = 'agent-dashboard-grid';
+
+                let enabledCount = 0;
+                let totalInputTokens = 0;
+                let totalOutputTokens = 0;
+                let totalInvocations = 0;
+
+                agents.forEach(record => {
+                    const name = record.getName() || 'Unnamed Agent';
+                    const enabled = record.prop('enabled')?.choice();
+                    const status = record.prop('status')?.choice() || 'idle';
+                    const lastRun = record.prop('last_run')?.date();
+                    const inputTokens = record.prop('input_tokens')?.number() || 0;
+                    const outputTokens = record.prop('output_tokens')?.number() || 0;
+                    const invocations = record.prop('invocations')?.number() || 0;
+                    const lastError = record.prop('last_error')?.text();
+                    const provider = record.prop('provider')?.choice() || 'anthropic';
+                    const model = record.prop('model')?.choice() || 'sonnet';
+
+                    const totalTokens = inputTokens + outputTokens;
+
+                    if (enabled === 'yes') {
+                        enabledCount++;
+                        totalInputTokens += inputTokens;
+                        totalOutputTokens += outputTokens;
+                        totalInvocations += invocations;
+                    }
+
+                    // Determine status dot
+                    let dotClass = '';
+                    let dotContent = '';
+                    if (enabled === 'no') {
+                        dotClass = 'disabled';
+                    } else if (status === 'thinking') {
+                        dotClass = 'thinking';
+                        dotContent = '<span class="ti ti-blinking-dot"></span>';
+                    } else if (status === 'error') {
+                        dotClass = 'error';
+                    }
+
+                    // Provider icon
+                    const providerIcons = {
+                        'anthropic': 'brand-anthropic',
+                        'openai': 'brand-openai',
+                        'ollama': 'box',
+                        'custom': 'plug'
+                    };
+                    const icon = providerIcons[provider] || 'robot';
+
+                    const card = document.createElement('div');
+                    card.className = 'agent-card';
+                    card.setAttribute('data-status', status);
+                    card.setAttribute('data-enabled', enabled || 'no');
+
+                    const timeText = lastRun ? formatRelativeTime(new Date(lastRun)) : 'Never used';
+
+                    card.innerHTML = `
+                        <div class="agent-card-header">
+                            <span class="agent-card-icon ti ti-${icon}"></span>
+                            <span class="agent-card-name">${escapeHtml(name)}</span>
+                            <span class="agent-card-dot ${dotClass}">${dotContent}</span>
+                        </div>
+                        <div class="agent-card-body">
+                            <div class="agent-card-value">${formatTokens(totalTokens)}</div>
+                            <div class="agent-card-label">tokens</div>
+                            ${totalTokens > 0 ? `
+                                <div class="agent-card-breakdown">
+                                    <span class="up">⬆ ${formatTokens(outputTokens)}</span>
+                                    <span class="down">⬇ ${formatTokens(inputTokens)}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="agent-card-footer">
+                            <div class="agent-card-time">${escapeHtml(timeText)}</div>
+                            ${invocations > 0 ? `<div class="agent-card-invocations">${invocations} chat${invocations !== 1 ? 's' : ''}</div>` : ''}
+                            ${status === 'error' && lastError ?
+                                `<div class="agent-card-error" title="${escapeHtml(lastError)}">${escapeHtml(lastError.substring(0, 40))}...</div>`
+                                : ''}
+                        </div>
+                    `;
+
+                    // Click to open agent config
+                    card.addEventListener('click', () => {
+                        viewContext.openRecordInOtherPanel(record.guid);
+                    });
+
+                    grid.appendChild(card);
+                });
+
+                container.appendChild(grid);
+
+                // Summary row
+                const totalTokensAll = totalInputTokens + totalOutputTokens;
+                const summary = document.createElement('div');
+                summary.className = 'agent-dashboard-summary';
+                summary.innerHTML = `
+                    <div class="agent-summary-item">
+                        <span class="agent-summary-value">${enabledCount}</span>
+                        <span>agent${enabledCount !== 1 ? 's' : ''} active</span>
+                    </div>
+                    <div class="agent-summary-item">
+                        <span class="agent-summary-value">${formatTokens(totalTokensAll)}</span>
+                        <span>total tokens</span>
+                    </div>
+                    <div class="agent-summary-item">
+                        <span class="up">⬆ ${formatTokens(totalOutputTokens)}</span>
+                        <span class="down">⬇ ${formatTokens(totalInputTokens)}</span>
+                    </div>
+                    <div class="agent-summary-item">
+                        <span class="agent-summary-value">${totalInvocations}</span>
+                        <span>chats</span>
+                    </div>
+                `;
+                container.appendChild(summary);
+            };
+
+            return {
+                onLoad: () => {
+                    viewContext.makeWideLayout();
+                    element.style.overflow = 'auto';
+                    container = document.createElement('div');
+                    container.className = 'agent-dashboard';
+                    element.appendChild(container);
+                },
+                onRefresh: ({ records: newRecords }) => {
+                    records = newRecords;
+                    renderDashboard();
+                },
+                onPanelResize: () => {},
+                onDestroy: () => {
+                    container = null;
+                    records = [];
+                },
+                onFocus: () => {},
+                onBlur: () => {},
+                onKeyboardNavigation: () => {}
+            };
+        });
     }
 
     // =========================================================================

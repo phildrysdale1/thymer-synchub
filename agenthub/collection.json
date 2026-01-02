@@ -262,6 +262,20 @@
   "custom": {},
   "views": [
     {
+      "id": "VAGENT000",
+      "shown": true,
+      "icon": "ti-dashboard",
+      "label": "Dashboard",
+      "description": "Agent status and token usage overview",
+      "field_ids": [],
+      "type": "custom",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "asc",
+      "sort_field_id": "title",
+      "opts": {}
+    },
+    {
       "id": "VAGENT001",
       "shown": true,
       "icon": "",
