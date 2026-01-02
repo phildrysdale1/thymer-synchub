@@ -239,7 +239,7 @@ class Plugin extends CollectionPlugin {
         // Call LLM API with streaming - progressively render as chunks arrive
         console.log(`[AgentHub] Calling LLM: provider=${agent.provider}, model=${agent.model}`);
         try {
-            await this.callLLMStreaming(
+            const llmResult = await this.callLLMStreaming(
                 agent,
                 apiKey,
                 systemPrompt,
@@ -248,16 +248,20 @@ class Plugin extends CollectionPlugin {
             );
 
             // Finalize rendering
-            const result = await renderer.finalize();
-            console.log('[AgentHub] Rendered:', result.rendered, 'items');
+            const renderResult = await renderer.finalize();
+            console.log('[AgentHub] Rendered:', renderResult.rendered, 'items');
 
             // Add top-level blank line for user's next message
             const nextInputLine = await activeRecord.createLineItem(null, labelItem, 'text');
             nextInputLine?.setSegments([]);
 
-            // Update stats and set status back to Idle
-            await this.updateAgentStats(agentRecord, agent.name);
+            // Update stats (including token usage) and set status back to Idle
+            await this.updateAgentStats(agentRecord, agent.name, llmResult?.usage);
             agentRecord?.prop('status')?.setChoice('idle');
+
+            if (llmResult?.usage) {
+                console.log(`[AgentHub] Tokens used: ${llmResult.usage.input_tokens} in, ${llmResult.usage.output_tokens} out`);
+            }
 
             // Delight: Auto-generate title if page is untitled
             const currentName = activeRecord.getName()?.trim() || '';
@@ -693,10 +697,15 @@ Title:`;
                 onChunk(result.text + '\n' + text);
             });
 
-            return typeof finalResult === 'string' ? result.text + '\n' + finalResult : result.text;
+            // Aggregate usage from both calls
+            const totalUsage = {
+                input_tokens: (result.usage?.input_tokens || 0) + (finalResult.usage?.input_tokens || 0),
+                output_tokens: (result.usage?.output_tokens || 0) + (finalResult.usage?.output_tokens || 0)
+            };
+            return { text: result.text + '\n' + (finalResult.text || finalResult), usage: totalUsage };
         }
 
-        return typeof result === 'string' ? result : result.text;
+        return { text: result.text || result, usage: result.usage || { input_tokens: 0, output_tokens: 0 } };
     }
 
     /**
@@ -824,13 +833,18 @@ Title:`;
                 const finalResult = await this.processOpenAIStream(followUpResponse, (text) => {
                     onChunk(fullText + '\n' + text);
                 });
-                return fullText + '\n' + (finalResult?.text || finalResult);
+                // Aggregate usage from both calls
+                const totalUsage = {
+                    input_tokens: (result.usage?.input_tokens || 0) + (finalResult.usage?.input_tokens || 0),
+                    output_tokens: (result.usage?.output_tokens || 0) + (finalResult.usage?.output_tokens || 0)
+                };
+                return { text: fullText + '\n' + (finalResult?.text || finalResult), usage: totalUsage };
             }
 
-            return fullText;
+            return { text: fullText, usage: result.usage || { input_tokens: 0, output_tokens: 0 } };
         }
 
-        return result?.text || result;
+        return { text: result?.text || result, usage: result?.usage || { input_tokens: 0, output_tokens: 0 } };
     }
 
     /**
@@ -943,11 +957,18 @@ Title:`;
                 const finalResult = await this.processOllamaStream(followUpResponse, (text) => {
                     onChunk(result.text + '\n' + text);
                 });
-                return result.text + '\n' + (finalResult?.text || finalResult);
+                // Aggregate usage from both calls
+                const totalUsage = {
+                    input_tokens: (result.usage?.input_tokens || 0) + (finalResult.usage?.input_tokens || 0),
+                    output_tokens: (result.usage?.output_tokens || 0) + (finalResult.usage?.output_tokens || 0)
+                };
+                return { text: result.text + '\n' + (finalResult?.text || finalResult), usage: totalUsage };
             }
+
+            return { text: result.text, usage: result.usage || { input_tokens: 0, output_tokens: 0 } };
         }
 
-        return result?.text || result;
+        return { text: result?.text || result, usage: result?.usage || { input_tokens: 0, output_tokens: 0 } };
     }
 
     async callCustomStreaming(apiKey, customModel, customEndpoint, systemPrompt, messages, onChunk, enableTools = true) {
@@ -1048,13 +1069,18 @@ Title:`;
                 const finalResult = await this.processOpenAIStream(followUpResponse, (text) => {
                     onChunk(fullText + '\n' + text);
                 });
-                return fullText + '\n' + (finalResult?.text || finalResult);
+                // Aggregate usage from both calls
+                const totalUsage = {
+                    input_tokens: (result.usage?.input_tokens || 0) + (finalResult.usage?.input_tokens || 0),
+                    output_tokens: (result.usage?.output_tokens || 0) + (finalResult.usage?.output_tokens || 0)
+                };
+                return { text: fullText + '\n' + (finalResult?.text || finalResult), usage: totalUsage };
             }
 
-            return fullText;
+            return { text: fullText, usage: result.usage || { input_tokens: 0, output_tokens: 0 } };
         }
 
-        return result?.text || result;
+        return { text: result?.text || result, usage: result?.usage || { input_tokens: 0, output_tokens: 0 } };
     }
 
     // Stream processors
@@ -1065,6 +1091,7 @@ Title:`;
         let buffer = '';
         let toolUseBlocks = [];
         let currentToolUse = null;
+        let usage = { input_tokens: 0, output_tokens: 0 };
 
         while (true) {
             const { done, value } = await reader.read();
@@ -1107,6 +1134,14 @@ Title:`;
                         if (data.type === 'content_block_stop' && currentToolUse) {
                             toolUseBlocks.push(currentToolUse);
                             currentToolUse = null;
+                        }
+
+                        // Capture usage from message_start and message_delta
+                        if (data.type === 'message_start' && data.message?.usage) {
+                            usage.input_tokens = data.message.usage.input_tokens || 0;
+                        }
+                        if (data.type === 'message_delta' && data.usage) {
+                            usage.output_tokens = data.usage.output_tokens || 0;
                         }
                     } catch (e) {}
                 }
@@ -1151,11 +1186,12 @@ Title:`;
             // Return with tool results for continuation
             return {
                 text: fullText,
-                toolResults: toolResults
+                toolResults: toolResults,
+                usage: usage
             };
         }
 
-        return fullText;
+        return { text: fullText, usage: usage };
     }
 
     async processOpenAIStream(response, onChunk) {
@@ -1165,6 +1201,7 @@ Title:`;
         let buffer = '';
         let toolCalls = [];
         let currentToolCall = null;
+        let usage = { input_tokens: 0, output_tokens: 0 };
 
         while (true) {
             const { done, value } = await reader.read();
@@ -1211,6 +1248,12 @@ Title:`;
                                 }
                             }
                         }
+
+                        // Capture usage (sent in final chunk with stream_options.include_usage)
+                        if (data.usage) {
+                            usage.input_tokens = data.usage.prompt_tokens || 0;
+                            usage.output_tokens = data.usage.completion_tokens || 0;
+                        }
                     } catch (e) {}
                 }
             }
@@ -1218,10 +1261,10 @@ Title:`;
 
         // Return object if tool calls detected, otherwise just text
         if (toolCalls.length > 0) {
-            return { text: fullText, toolCalls };
+            return { text: fullText, toolCalls, usage };
         }
 
-        return fullText;
+        return { text: fullText, usage };
     }
 
     async processOllamaStream(response, onChunk) {
@@ -1230,6 +1273,7 @@ Title:`;
         let fullText = '';
         let buffer = '';
         let toolCalls = [];
+        let usage = { input_tokens: 0, output_tokens: 0 };
 
         while (true) {
             const { done, value } = await reader.read();
@@ -1259,15 +1303,21 @@ Title:`;
                             });
                         }
                     }
+
+                    // Capture usage (Ollama sends in final message with done: true)
+                    if (data.done && data.prompt_eval_count !== undefined) {
+                        usage.input_tokens = data.prompt_eval_count || 0;
+                        usage.output_tokens = data.eval_count || 0;
+                    }
                 } catch (e) {}
             }
         }
 
         // Return object if tool calls detected, otherwise just text
         if (toolCalls.length > 0) {
-            return { text: fullText, toolCalls };
+            return { text: fullText, toolCalls, usage };
         }
-        return fullText;
+        return { text: fullText, usage };
     }
 
     // =========================================================================
@@ -1444,10 +1494,18 @@ Title:`;
     // Stats
     // =========================================================================
 
-    async updateAgentStats(record, agentName) {
+    async updateAgentStats(record, agentName, usage = null) {
         try {
             const count = record.prop('invocations')?.number() || 0;
             record.prop('invocations')?.set(count + 1);
+
+            // Track token usage
+            if (usage) {
+                const inputTokens = record.prop('input_tokens')?.number() || 0;
+                const outputTokens = record.prop('output_tokens')?.number() || 0;
+                record.prop('input_tokens')?.set(inputTokens + (usage.input_tokens || 0));
+                record.prop('output_tokens')?.set(outputTokens + (usage.output_tokens || 0));
+            }
 
             // Use SyncHub's setLastRun if available, otherwise fallback
             if (window.syncHub?.setLastRun) {

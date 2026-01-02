@@ -216,6 +216,24 @@
       "type": "number"
     },
     {
+      "icon": "ti-arrow-down",
+      "id": "input_tokens",
+      "label": "Input Tokens",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "number"
+    },
+    {
+      "icon": "ti-arrow-up",
+      "id": "output_tokens",
+      "label": "Output Tokens",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "number"
+    },
+    {
       "icon": "ti-alert-triangle",
       "id": "last_error",
       "label": "Last Error",
@@ -249,7 +267,7 @@
       "icon": "",
       "label": "All Agents",
       "description": "",
-      "field_ids": ["title", "command", "enabled", "provider", "model", "status", "last_run", "invocations"],
+      "field_ids": ["title", "command", "enabled", "provider", "model", "status", "last_run", "invocations", "input_tokens", "output_tokens"],
       "type": "table",
       "read_only": false,
       "group_by_field_id": null,
