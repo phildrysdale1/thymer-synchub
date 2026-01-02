@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HabitHub Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Thymer CSS Variables (simulated for prototype) */
+        :root {
+            --bg-default: #0d1117;
+            --bg-hover: #161b22;
+            --bg-active: #1c2128;
+            --text-default: #e6edf3;
+            --text-muted: #7d8590;
+            --border-default: #30363d;
+            --font-family: 'Outfit', -apple-system, sans-serif;
+
+            /* Enum colors */
+            --enum-green-bg: #238636;
+            --enum-green-fg: #3fb950;
+            --enum-orange-bg: #9e6a03;
+            --enum-orange-fg: #d29922;
+            --enum-red-bg: #da3633;
+            --enum-red-fg: #f85149;
+            --enum-blue-bg: #1f6feb;
+            --enum-blue-fg: #58a6ff;
+
+            /* HabitHub specific */
+            --habit-glow: rgba(63, 185, 80, 0.15);
+            --vice-glow: rgba(248, 81, 73, 0.15);
+            --streak-fire: linear-gradient(135deg, #f97316 0%, #ef4444 50%, #f59e0b 100%);
+            --streak-ice: linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #8b5cf6 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-default);
+            color: var(--text-default);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        /* Dashboard Container */
+        .habit-dashboard {
+            padding: 32px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header with date and summary */
+        .habit-dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-default);
+        }
+
+        .habit-dashboard-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 4px;
+        }
+
+        .habit-dashboard-date {
+            font-size: 28px;
+            font-weight: 300;
+            color: var(--text-default);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .habit-dashboard-summary {
+            display: flex;
+            gap: 24px;
+            align-items: center;
+        }
+
+        .summary-stat {
+            text-align: right;
+        }
+
+        .summary-stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .summary-stat-value.positive { color: var(--enum-green-fg); }
+        .summary-stat-value.warning { color: var(--enum-orange-fg); }
+        .summary-stat-value.negative { color: var(--enum-red-fg); }
+
+        .summary-stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Card Grid */
+        .habit-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        /* Habit Card */
+        .habit-card {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .habit-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--enum-green-bg);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .habit-card:hover {
+            border-color: rgba(255,255,255,0.15);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+        }
+
+        .habit-card:hover::before {
+            opacity: 1;
+        }
+
+        .habit-card[data-kind="vice"]::before {
+            background: var(--enum-red-bg);
+        }
+
+        .habit-card[data-kind="vice"] {
+            background: linear-gradient(135deg, var(--bg-hover) 0%, rgba(218, 54, 51, 0.05) 100%);
+        }
+
+        /* Card Header */
+        .habit-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .habit-card-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .habit-card-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            background: rgba(255,255,255,0.05);
+        }
+
+        .habit-card[data-kind="habit"] .habit-card-icon {
+            background: rgba(63, 185, 80, 0.15);
+        }
+
+        .habit-card[data-kind="vice"] .habit-card-icon {
+            background: rgba(248, 81, 73, 0.15);
+        }
+
+        .habit-card-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-default);
+        }
+
+        .habit-card-schedule {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* Streak Badge */
+        .streak-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .streak-badge.fire {
+            background: var(--streak-fire);
+            color: white;
+            box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);
+            animation: pulse-fire 2s infinite;
+        }
+
+        .streak-badge.ice {
+            background: var(--streak-ice);
+            color: white;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+            animation: pulse-ice 2s infinite;
+        }
+
+        .streak-badge.dormant {
+            background: rgba(255,255,255,0.1);
+            color: var(--text-muted);
+        }
+
+        @keyframes pulse-fire {
+            0%, 100% { box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4); }
+            50% { box-shadow: 0 4px 25px rgba(249, 115, 22, 0.6); }
+        }
+
+        @keyframes pulse-ice {
+            0%, 100% { box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 4px 25px rgba(59, 130, 246, 0.6); }
+        }
+
+        /* Card Body - Main Value */
+        .habit-card-body {
+            text-align: center;
+            padding: 16px 0;
+        }
+
+        .habit-card-value {
+            font-size: 48px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            line-height: 1;
+            margin-bottom: 4px;
+            background: linear-gradient(135deg, var(--text-default) 0%, var(--text-muted) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .habit-card[data-kind="habit"] .habit-card-value {
+            background: linear-gradient(135deg, var(--enum-green-fg) 0%, #34d399 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+        }
+
+        .habit-card[data-kind="vice"] .habit-card-value {
+            background: linear-gradient(135deg, var(--enum-green-fg) 0%, #06b6d4 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+        }
+
+        .habit-card-unit {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Sparkline */
+        .habit-sparkline {
+            height: 40px;
+            margin: 16px 0;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 3px;
+            padding: 0 4px;
+        }
+
+        .sparkline-bar {
+            flex: 1;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            min-height: 4px;
+            position: relative;
+        }
+
+        .habit-card[data-kind="habit"] .sparkline-bar {
+            background: rgba(63, 185, 80, 0.3);
+        }
+
+        .habit-card[data-kind="habit"] .sparkline-bar.today {
+            background: var(--enum-green-fg);
+            box-shadow: 0 0 10px rgba(63, 185, 80, 0.5);
+        }
+
+        .habit-card[data-kind="vice"] .sparkline-bar {
+            background: rgba(248, 81, 73, 0.3);
+        }
+
+        .habit-card[data-kind="vice"] .sparkline-bar.today {
+            background: var(--enum-orange-fg);
+        }
+
+        .habit-card[data-kind="vice"] .sparkline-bar.over {
+            background: var(--enum-red-fg);
+            box-shadow: 0 0 10px rgba(248, 81, 73, 0.5);
+        }
+
+        .sparkline-bar:hover {
+            filter: brightness(1.3);
+        }
+
+        /* Card Footer */
+        .habit-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-default);
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .habit-target {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .habit-target-icon {
+            opacity: 0.6;
+        }
+
+        .habit-trend {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .habit-trend.up { color: var(--enum-green-fg); }
+        .habit-trend.down { color: var(--enum-red-fg); }
+        .habit-trend.neutral { color: var(--text-muted); }
+
+        /* Goal Progress Section */
+        .goals-section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-default);
+        }
+
+        .goal-card {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 12px;
+        }
+
+        .goal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .goal-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .goal-icon {
+            font-size: 20px;
+        }
+
+        .goal-name {
+            font-weight: 600;
+            color: var(--text-default);
+        }
+
+        .goal-meta {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .goal-progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .goal-progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            background: linear-gradient(90deg, var(--enum-green-bg) 0%, var(--enum-green-fg) 100%);
+            transition: width 0.5s ease;
+        }
+
+        .goal-progress-text {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .goal-progress-value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--enum-green-fg);
+        }
+
+        /* Heatmap Section */
+        .heatmap-section {
+            margin-bottom: 40px;
+        }
+
+        .heatmap-container {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            padding: 24px;
+            overflow-x: auto;
+        }
+
+        .heatmap-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .heatmap-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+        }
+
+        .heatmap-legend {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .heatmap-legend-box {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .heatmap {
+            display: flex;
+            gap: 3px;
+        }
+
+        .heatmap-week {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .heatmap-day {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.05);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .heatmap-day:hover {
+            transform: scale(1.3);
+            z-index: 1;
+        }
+
+        .heatmap-day[data-level="1"] { background: rgba(63, 185, 80, 0.25); }
+        .heatmap-day[data-level="2"] { background: rgba(63, 185, 80, 0.45); }
+        .heatmap-day[data-level="3"] { background: rgba(63, 185, 80, 0.65); }
+        .heatmap-day[data-level="4"] { background: var(--enum-green-fg); }
+
+        /* Vice heatmap (inverted - red is bad) */
+        .heatmap[data-kind="vice"] .heatmap-day[data-level="1"] { background: rgba(248, 81, 73, 0.25); }
+        .heatmap[data-kind="vice"] .heatmap-day[data-level="2"] { background: rgba(248, 81, 73, 0.45); }
+        .heatmap[data-kind="vice"] .heatmap-day[data-level="3"] { background: rgba(248, 81, 73, 0.65); }
+        .heatmap[data-kind="vice"] .heatmap-day[data-level="4"] { background: var(--enum-red-fg); }
+
+        .heatmap-months {
+            display: flex;
+            margin-bottom: 8px;
+            padding-left: 0;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .heatmap-month {
+            width: calc((14px + 3px) * 4.3);
+            text-align: left;
+        }
+
+        .heatmap-days {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin-right: 8px;
+            font-size: 10px;
+            color: var(--text-muted);
+            justify-content: space-around;
+            height: calc(7 * (14px + 3px) - 3px);
+        }
+
+        .heatmap-wrapper {
+            display: flex;
+        }
+
+        /* Today Checklist */
+        .today-section {
+            margin-bottom: 40px;
+        }
+
+        .today-card {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .today-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .today-progress {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .today-progress-ring {
+            width: 48px;
+            height: 48px;
+            position: relative;
+        }
+
+        .today-progress-ring svg {
+            transform: rotate(-90deg);
+        }
+
+        .today-progress-ring circle {
+            fill: none;
+            stroke-width: 4;
+        }
+
+        .today-progress-ring .bg {
+            stroke: rgba(255,255,255,0.1);
+        }
+
+        .today-progress-ring .progress {
+            stroke: var(--enum-green-fg);
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+
+        .today-progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .today-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .today-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .today-item:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .today-item[data-done="true"] {
+            opacity: 0.6;
+        }
+
+        .today-checkbox {
+            width: 22px;
+            height: 22px;
+            border: 2px solid var(--border-default);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .today-item[data-done="true"] .today-checkbox {
+            background: var(--enum-green-bg);
+            border-color: var(--enum-green-bg);
+            color: white;
+        }
+
+        .today-item[data-kind="vice"] .today-checkbox {
+            border-color: var(--enum-orange-bg);
+        }
+
+        .today-item-info {
+            flex: 1;
+        }
+
+        .today-item-name {
+            font-weight: 500;
+        }
+
+        .today-item-target {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .today-item-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .today-item[data-done="true"] .today-item-value {
+            color: var(--enum-green-fg);
+        }
+
+        /* Empty State */
+        .habit-empty {
+            text-align: center;
+            padding: 80px 40px;
+            color: var(--text-muted);
+        }
+
+        .habit-empty-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .habit-empty-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-default);
+            margin-bottom: 8px;
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .habit-card {
+            animation: fadeInUp 0.5s ease backwards;
+        }
+
+        .habit-card:nth-child(1) { animation-delay: 0.05s; }
+        .habit-card:nth-child(2) { animation-delay: 0.1s; }
+        .habit-card:nth-child(3) { animation-delay: 0.15s; }
+        .habit-card:nth-child(4) { animation-delay: 0.2s; }
+        .habit-card:nth-child(5) { animation-delay: 0.25s; }
+        .habit-card:nth-child(6) { animation-delay: 0.3s; }
+    </style>
+</head>
+<body>
+    <div class="habit-dashboard">
+        <!-- Header -->
+        <header class="habit-dashboard-header">
+            <div>
+                <div class="habit-dashboard-title">HabitHub</div>
+                <div class="habit-dashboard-date">Thursday, Jan 2</div>
+            </div>
+            <div class="habit-dashboard-summary">
+                <div class="summary-stat">
+                    <div class="summary-stat-value positive">3/4</div>
+                    <div class="summary-stat-label">Today</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-stat-value">23</div>
+                    <div class="summary-stat-label">This Week</div>
+                </div>
+                <div class="summary-stat">
+                    <div class="summary-stat-value positive">9</div>
+                    <div class="summary-stat-label">Best Streak</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Today's Checklist -->
+        <section class="today-section">
+            <div class="section-title">Today's Habits</div>
+            <div class="today-card">
+                <div class="today-header">
+                    <div style="font-weight: 600; color: var(--text-default);">3 of 4 complete</div>
+                    <div class="today-progress">
+                        <div class="today-progress-ring">
+                            <svg width="48" height="48">
+                                <circle class="bg" cx="24" cy="24" r="20"></circle>
+                                <circle class="progress" cx="24" cy="24" r="20"
+                                    stroke-dasharray="125.6"
+                                    stroke-dashoffset="31.4"></circle>
+                            </svg>
+                            <div class="today-progress-text">75%</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="today-list">
+                    <div class="today-item" data-done="true" data-kind="habit">
+                        <div class="today-checkbox">✓</div>
+                        <div class="today-item-info">
+                            <div class="today-item-name">Exercise</div>
+                            <div class="today-item-target">Target: 30m daily</div>
+                        </div>
+                        <div class="today-item-value">45m</div>
+                    </div>
+                    <div class="today-item" data-done="true" data-kind="habit">
+                        <div class="today-checkbox">✓</div>
+                        <div class="today-item-info">
+                            <div class="today-item-name">Reading</div>
+                            <div class="today-item-target">Target: 30m daily</div>
+                        </div>
+                        <div class="today-item-value">35m</div>
+                    </div>
+                    <div class="today-item" data-done="false" data-kind="habit">
+                        <div class="today-checkbox"></div>
+                        <div class="today-item-info">
+                            <div class="today-item-name">Meditation</div>
+                            <div class="today-item-target">Target: 15m daily</div>
+                        </div>
+                        <div class="today-item-value">—</div>
+                    </div>
+                    <div class="today-item" data-done="true" data-kind="vice">
+                        <div class="today-checkbox">✓</div>
+                        <div class="today-item-info">
+                            <div class="today-item-name">Smoking</div>
+                            <div class="today-item-target">Target: ≤5/day</div>
+                        </div>
+                        <div class="today-item-value">3</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Habit Cards Grid -->
+        <section>
+            <div class="section-title">Habits</div>
+            <div class="habit-grid">
+                <!-- Exercise Card -->
+                <div class="habit-card" data-kind="habit">
+                    <div class="habit-card-header">
+                        <div class="habit-card-info">
+                            <div class="habit-card-icon">🏃</div>
+                            <div>
+                                <div class="habit-card-name">Exercise</div>
+                                <div class="habit-card-schedule">Daily • 30m target</div>
+                            </div>
+                        </div>
+                        <div class="streak-badge fire">
+                            <span>🔥</span>
+                            <span>9</span>
+                        </div>
+                    </div>
+                    <div class="habit-card-body">
+                        <div class="habit-card-value">3.5h</div>
+                        <div class="habit-card-unit">This Week</div>
+                    </div>
+                    <div class="habit-sparkline">
+                        <div class="sparkline-bar" style="height: 60%"></div>
+                        <div class="sparkline-bar" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 45%"></div>
+                        <div class="sparkline-bar" style="height: 80%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 70%"></div>
+                        <div class="sparkline-bar today" style="height: 90%"></div>
+                    </div>
+                    <div class="habit-card-footer">
+                        <div class="habit-target">
+                            <span class="habit-target-icon">◎</span>
+                            <span>210m / 210m</span>
+                        </div>
+                        <div class="habit-trend up">↑ 15% vs last week</div>
+                    </div>
+                </div>
+
+                <!-- Reading Card -->
+                <div class="habit-card" data-kind="habit">
+                    <div class="habit-card-header">
+                        <div class="habit-card-info">
+                            <div class="habit-card-icon">📚</div>
+                            <div>
+                                <div class="habit-card-name">Reading</div>
+                                <div class="habit-card-schedule">Daily • 30m target</div>
+                            </div>
+                        </div>
+                        <div class="streak-badge fire">
+                            <span>🔥</span>
+                            <span>4</span>
+                        </div>
+                    </div>
+                    <div class="habit-card-body">
+                        <div class="habit-card-value">2.1h</div>
+                        <div class="habit-card-unit">This Week</div>
+                    </div>
+                    <div class="habit-sparkline">
+                        <div class="sparkline-bar" style="height: 30%"></div>
+                        <div class="sparkline-bar" style="height: 50%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 60%"></div>
+                        <div class="sparkline-bar" style="height: 45%"></div>
+                        <div class="sparkline-bar" style="height: 55%"></div>
+                        <div class="sparkline-bar today" style="height: 70%"></div>
+                    </div>
+                    <div class="habit-card-footer">
+                        <div class="habit-target">
+                            <span class="habit-target-icon">◎</span>
+                            <span>126m / 210m</span>
+                        </div>
+                        <div class="habit-trend down">↓ 8% vs last week</div>
+                    </div>
+                </div>
+
+                <!-- Meditation Card -->
+                <div class="habit-card" data-kind="habit">
+                    <div class="habit-card-header">
+                        <div class="habit-card-info">
+                            <div class="habit-card-icon">🧘</div>
+                            <div>
+                                <div class="habit-card-name">Meditation</div>
+                                <div class="habit-card-schedule">Daily • 15m target</div>
+                            </div>
+                        </div>
+                        <div class="streak-badge dormant">
+                            <span>💤</span>
+                            <span>0</span>
+                        </div>
+                    </div>
+                    <div class="habit-card-body">
+                        <div class="habit-card-value">45m</div>
+                        <div class="habit-card-unit">This Week</div>
+                    </div>
+                    <div class="habit-sparkline">
+                        <div class="sparkline-bar" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 80%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 60%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                    </div>
+                    <div class="habit-card-footer">
+                        <div class="habit-target">
+                            <span class="habit-target-icon">◎</span>
+                            <span>45m / 105m</span>
+                        </div>
+                        <div class="habit-trend neutral">— same as last week</div>
+                    </div>
+                </div>
+
+                <!-- Smoking (Vice) Card -->
+                <div class="habit-card" data-kind="vice">
+                    <div class="habit-card-header">
+                        <div class="habit-card-info">
+                            <div class="habit-card-icon">🚬</div>
+                            <div>
+                                <div class="habit-card-name">Smoking</div>
+                                <div class="habit-card-schedule">Daily • ≤5 target</div>
+                            </div>
+                        </div>
+                        <div class="streak-badge ice">
+                            <span>🧊</span>
+                            <span>12</span>
+                        </div>
+                    </div>
+                    <div class="habit-card-body">
+                        <div class="habit-card-value">12d</div>
+                        <div class="habit-card-unit">Under Target</div>
+                    </div>
+                    <div class="habit-sparkline">
+                        <div class="sparkline-bar over" style="height: 100%"></div>
+                        <div class="sparkline-bar over" style="height: 80%"></div>
+                        <div class="sparkline-bar" style="height: 50%"></div>
+                        <div class="sparkline-bar" style="height: 40%"></div>
+                        <div class="sparkline-bar" style="height: 30%"></div>
+                        <div class="sparkline-bar" style="height: 35%"></div>
+                        <div class="sparkline-bar today" style="height: 25%"></div>
+                    </div>
+                    <div class="habit-card-footer">
+                        <div class="habit-target">
+                            <span class="habit-target-icon">◎</span>
+                            <span>23 this week (↓ from 42)</span>
+                        </div>
+                        <div class="habit-trend up">↓ 45% vs last week</div>
+                    </div>
+                </div>
+
+                <!-- Gym Card -->
+                <div class="habit-card" data-kind="habit">
+                    <div class="habit-card-header">
+                        <div class="habit-card-info">
+                            <div class="habit-card-icon">🏋️</div>
+                            <div>
+                                <div class="habit-card-name">Gym</div>
+                                <div class="habit-card-schedule">3x per week</div>
+                            </div>
+                        </div>
+                        <div class="streak-badge fire">
+                            <span>🔥</span>
+                            <span>3</span>
+                        </div>
+                    </div>
+                    <div class="habit-card-body">
+                        <div class="habit-card-value">2/3</div>
+                        <div class="habit-card-unit">This Week</div>
+                    </div>
+                    <div class="habit-sparkline">
+                        <div class="sparkline-bar today" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar today" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                        <div class="sparkline-bar" style="height: 0%"></div>
+                    </div>
+                    <div class="habit-card-footer">
+                        <div class="habit-target">
+                            <span class="habit-target-icon">◎</span>
+                            <span>1 more to hit target</span>
+                        </div>
+                        <div class="habit-trend up">On track</div>
+                    </div>
+                </div>
+
+                <!-- Water Card -->
+                <div class="habit-card" data-kind="habit">
+                    <div class="habit-card-header">
+                        <div class="habit-card-info">
+                            <div class="habit-card-icon">💧</div>
+                            <div>
+                                <div class="habit-card-name">Water</div>
+                                <div class="habit-card-schedule">Daily • 8 glasses</div>
+                            </div>
+                        </div>
+                        <div class="streak-badge fire">
+                            <span>🔥</span>
+                            <span>5</span>
+                        </div>
+                    </div>
+                    <div class="habit-card-body">
+                        <div class="habit-card-value">52</div>
+                        <div class="habit-card-unit">Glasses This Week</div>
+                    </div>
+                    <div class="habit-sparkline">
+                        <div class="sparkline-bar" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 90%"></div>
+                        <div class="sparkline-bar" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 75%"></div>
+                        <div class="sparkline-bar" style="height: 100%"></div>
+                        <div class="sparkline-bar" style="height: 85%"></div>
+                        <div class="sparkline-bar today" style="height: 60%"></div>
+                    </div>
+                    <div class="habit-card-footer">
+                        <div class="habit-target">
+                            <span class="habit-target-icon">◎</span>
+                            <span>52 / 56 target</span>
+                        </div>
+                        <div class="habit-trend up">↑ 12% vs last week</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Goals Section -->
+        <section class="goals-section">
+            <div class="section-title">Goals</div>
+
+            <div class="goal-card">
+                <div class="goal-header">
+                    <div class="goal-info">
+                        <span class="goal-icon">📚</span>
+                        <span class="goal-name">Read 12 Books</span>
+                    </div>
+                    <div class="goal-meta">Due Dec 31, 2025</div>
+                </div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" style="width: 17%"></div>
+                </div>
+                <div class="goal-progress-text">
+                    <span class="goal-progress-value">2/12 books</span>
+                    <span>11 months remaining • on track</span>
+                </div>
+            </div>
+
+            <div class="goal-card">
+                <div class="goal-header">
+                    <div class="goal-info">
+                        <span class="goal-icon">🏃</span>
+                        <span class="goal-name">Run 500km</span>
+                    </div>
+                    <div class="goal-meta">Due Dec 31, 2025</div>
+                </div>
+                <div class="goal-progress-bar">
+                    <div class="goal-progress-fill" style="width: 8%"></div>
+                </div>
+                <div class="goal-progress-text">
+                    <span class="goal-progress-value">42/500 km</span>
+                    <span>Need ~42km/month to hit goal</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Heatmap Section -->
+        <section class="heatmap-section">
+            <div class="section-title">Activity Heatmap</div>
+            <div class="heatmap-container">
+                <div class="heatmap-header">
+                    <div class="heatmap-title">
+                        <span>📚</span>
+                        <span>Reading</span>
+                    </div>
+                    <div class="heatmap-legend">
+                        <span>Less</span>
+                        <div class="heatmap-legend-box" style="background: rgba(63, 185, 80, 0.15)"></div>
+                        <div class="heatmap-legend-box" style="background: rgba(63, 185, 80, 0.35)"></div>
+                        <div class="heatmap-legend-box" style="background: rgba(63, 185, 80, 0.55)"></div>
+                        <div class="heatmap-legend-box" style="background: var(--enum-green-fg)"></div>
+                        <span>More</span>
+                    </div>
+                </div>
+                <div class="heatmap-months">
+                    <span class="heatmap-month">Oct</span>
+                    <span class="heatmap-month">Nov</span>
+                    <span class="heatmap-month">Dec</span>
+                    <span class="heatmap-month">Jan</span>
+                </div>
+                <div class="heatmap-wrapper">
+                    <div class="heatmap-days">
+                        <span>Mon</span>
+                        <span>Wed</span>
+                        <span>Fri</span>
+                    </div>
+                    <div class="heatmap" id="reading-heatmap">
+                        <!-- Generated by JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // Generate heatmap data
+        function generateHeatmap(containerId, weeks = 17) {
+            const container = document.getElementById(containerId);
+            for (let week = 0; week < weeks; week++) {
+                const weekEl = document.createElement('div');
+                weekEl.className = 'heatmap-week';
+                for (let day = 0; day < 7; day++) {
+                    const dayEl = document.createElement('div');
+                    dayEl.className = 'heatmap-day';
+                    // Random level for demo
+                    const level = Math.random() > 0.3 ? Math.floor(Math.random() * 5) : 0;
+                    if (level > 0) {
+                        dayEl.setAttribute('data-level', level);
+                    }
+                    weekEl.appendChild(dayEl);
+                }
+                container.appendChild(weekEl);
+            }
+        }
+
+        generateHeatmap('reading-heatmap');
+
+        // Interactive checkboxes
+        document.querySelectorAll('.today-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('click', () => {
+                const item = checkbox.closest('.today-item');
+                const isDone = item.getAttribute('data-done') === 'true';
+                item.setAttribute('data-done', !isDone);
+                checkbox.textContent = isDone ? '' : '✓';
+            });
+        });
+    </script>
+</body>
+</html>
