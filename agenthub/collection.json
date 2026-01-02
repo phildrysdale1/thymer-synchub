@@ -234,6 +234,15 @@
       "type": "number"
     },
     {
+      "icon": "ti-clock",
+      "id": "total_generation_ms",
+      "label": "Generation Time",
+      "many": false,
+      "read_only": true,
+      "active": true,
+      "type": "number"
+    },
+    {
       "icon": "ti-alert-triangle",
       "id": "last_error",
       "label": "Last Error",

@@ -106,6 +106,7 @@ const DASHBOARD_CSS = `
     }
     .agent-card-breakdown .up { color: var(--enum-orange-fg, #f59e0b); }
     .agent-card-breakdown .down { color: var(--enum-blue-fg, #3b82f6); }
+    .agent-card-breakdown .tps { color: var(--enum-green-fg, #22c55e); }
     .agent-card-label {
         font-size: 12px;
         color: var(--text-muted);
@@ -156,6 +157,9 @@ const DASHBOARD_CSS = `
         font-weight: 600;
         color: var(--text-default);
     }
+    .agent-summary-item .up { color: var(--enum-orange-fg, #f59e0b); }
+    .agent-summary-item .down { color: var(--enum-blue-fg, #3b82f6); }
+    .agent-summary-item .tps { color: var(--enum-green-fg, #22c55e); font-weight: 600; }
     .agent-dashboard-empty {
         text-align: center;
         padding: 60px 20px;
@@ -384,6 +388,8 @@ class Plugin extends CollectionPlugin {
                 let totalOutputTokens = 0;
                 let totalInvocations = 0;
 
+                let totalGenerationMs = 0;
+
                 agents.forEach(record => {
                     const name = record.getName() || 'Unnamed Agent';
                     const enabled = record.prop('enabled')?.choice();
@@ -391,18 +397,22 @@ class Plugin extends CollectionPlugin {
                     const lastRun = record.prop('last_run')?.date();
                     const inputTokens = record.prop('input_tokens')?.number() || 0;
                     const outputTokens = record.prop('output_tokens')?.number() || 0;
+                    const generationMs = record.prop('total_generation_ms')?.number() || 0;
                     const invocations = record.prop('invocations')?.number() || 0;
                     const lastError = record.prop('last_error')?.text();
                     const provider = record.prop('provider')?.choice() || 'anthropic';
                     const model = record.prop('model')?.choice() || 'sonnet';
 
                     const totalTokens = inputTokens + outputTokens;
+                    // TPS = output tokens / seconds (output is what we're generating)
+                    const tps = generationMs > 0 ? (outputTokens / (generationMs / 1000)) : 0;
 
                     if (enabled === 'yes') {
                         enabledCount++;
                         totalInputTokens += inputTokens;
                         totalOutputTokens += outputTokens;
                         totalInvocations += invocations;
+                        totalGenerationMs += generationMs;
                     }
 
                     // Determine status dot
@@ -446,11 +456,12 @@ class Plugin extends CollectionPlugin {
                                 <div class="agent-card-breakdown">
                                     <span class="up">⬆ ${formatTokens(outputTokens)}</span>
                                     <span class="down">⬇ ${formatTokens(inputTokens)}</span>
+                                    ${tps > 0 ? `<span class="tps">~${tps.toFixed(0)} tps</span>` : ''}
                                 </div>
                             ` : ''}
                         </div>
                         <div class="agent-card-footer">
-                            <div class="agent-card-time">${escapeHtml(timeText)}</div>
+                            <div class="agent-card-time">${escapeHtml(timeText)} · ${escapeHtml(model)}</div>
                             ${invocations > 0 ? `<div class="agent-card-invocations">${invocations} chat${invocations !== 1 ? 's' : ''}</div>` : ''}
                             ${status === 'error' && lastError ?
                                 `<div class="agent-card-error" title="${escapeHtml(lastError)}">${escapeHtml(lastError.substring(0, 40))}...</div>`
@@ -470,6 +481,7 @@ class Plugin extends CollectionPlugin {
 
                 // Summary row
                 const totalTokensAll = totalInputTokens + totalOutputTokens;
+                const overallTps = totalGenerationMs > 0 ? (totalOutputTokens / (totalGenerationMs / 1000)) : 0;
                 const summary = document.createElement('div');
                 summary.className = 'agent-dashboard-summary';
                 summary.innerHTML = `
@@ -485,6 +497,11 @@ class Plugin extends CollectionPlugin {
                         <span class="up">⬆ ${formatTokens(totalOutputTokens)}</span>
                         <span class="down">⬇ ${formatTokens(totalInputTokens)}</span>
                     </div>
+                    ${overallTps > 0 ? `
+                        <div class="agent-summary-item">
+                            <span class="tps">~${overallTps.toFixed(0)} tps</span>
+                        </div>
+                    ` : ''}
                     <div class="agent-summary-item">
                         <span class="agent-summary-value">${totalInvocations}</span>
                         <span>chats</span>
@@ -627,6 +644,7 @@ class Plugin extends CollectionPlugin {
         // Call LLM API with streaming - progressively render as chunks arrive
         console.log(`[AgentHub] Calling LLM: provider=${agent.provider}, model=${agent.model}`);
         try {
+            const startTime = performance.now();
             const llmResult = await this.callLLMStreaming(
                 agent,
                 apiKey,
@@ -634,6 +652,7 @@ class Plugin extends CollectionPlugin {
                 fullMessages,
                 (text) => renderer.update(text)
             );
+            const generationMs = Math.round(performance.now() - startTime);
 
             // Finalize rendering
             const renderResult = await renderer.finalize();
@@ -643,12 +662,13 @@ class Plugin extends CollectionPlugin {
             const nextInputLine = await activeRecord.createLineItem(null, labelItem, 'text');
             nextInputLine?.setSegments([]);
 
-            // Update stats (including token usage) and set status back to Idle
-            await this.updateAgentStats(agentRecord, agent.name, llmResult?.usage);
+            // Update stats (including token usage and generation time) and set status back to Idle
+            await this.updateAgentStats(agentRecord, agent.name, llmResult?.usage, generationMs);
             agentRecord?.prop('status')?.setChoice('idle');
 
             if (llmResult?.usage) {
-                console.log(`[AgentHub] Tokens used: ${llmResult.usage.input_tokens} in, ${llmResult.usage.output_tokens} out`);
+                const tps = generationMs > 0 ? ((llmResult.usage.output_tokens || 0) / (generationMs / 1000)).toFixed(1) : 0;
+                console.log(`[AgentHub] Tokens: ${llmResult.usage.input_tokens} in, ${llmResult.usage.output_tokens} out | ${generationMs}ms | ${tps} tps`);
             }
 
             // Delight: Auto-generate title if page is untitled
@@ -1882,7 +1902,7 @@ Title:`;
     // Stats
     // =========================================================================
 
-    async updateAgentStats(record, agentName, usage = null) {
+    async updateAgentStats(record, agentName, usage = null, generationMs = 0) {
         try {
             const count = record.prop('invocations')?.number() || 0;
             record.prop('invocations')?.set(count + 1);
@@ -1893,6 +1913,12 @@ Title:`;
                 const outputTokens = record.prop('output_tokens')?.number() || 0;
                 record.prop('input_tokens')?.set(inputTokens + (usage.input_tokens || 0));
                 record.prop('output_tokens')?.set(outputTokens + (usage.output_tokens || 0));
+            }
+
+            // Track generation time
+            if (generationMs > 0) {
+                const totalMs = record.prop('total_generation_ms')?.number() || 0;
+                record.prop('total_generation_ms')?.set(totalMs + generationMs);
             }
 
             // Use SyncHub's setLastRun if available, otherwise fallback
