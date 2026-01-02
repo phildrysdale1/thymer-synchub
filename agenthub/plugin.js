@@ -1015,12 +1015,20 @@ Title:`;
         // Get tools in Anthropic format
         const tools = enableTools ? this.getToolsForAnthropicAPI() : null;
 
+        // Sanitize messages to remove invalid Unicode surrogates (can happen from local models)
+        const sanitizedMessages = messages.map(m => ({
+            ...m,
+            content: typeof m.content === 'string'
+                ? m.content.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD')
+                : m.content
+        }));
+
         const requestBody = {
             model,
             max_tokens: 4096,
             stream: true,
-            system: systemPrompt || undefined,
-            messages,
+            system: systemPrompt?.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD') || undefined,
+            messages: sanitizedMessages,
         };
 
         if (tools && tools.length > 0) {
