@@ -1,53 +1,64 @@
 # Thymer Sync Hub
 
-A plugin architecture for syncing external data sources into [Thymer](https://thymer.com), plus AI agents that use those sources.
+A suite of plugins for [Thymer](https://thymer.com): sync external data, chat with AI agents, and track habits.
 
-## The Laundromat Architecture
+## What's Included
+
+| Plugin | Type | Description |
+|--------|------|-------------|
+| **[Sync Hub](synchub/)** | Orchestrator | Schedules syncs, manages plugin configs |
+| **[Agent Hub](agenthub/)** | AI Agents | Chat with Claude/GPT/local LLMs on any page |
+| **[HabitHub](habithub/)** | Standalone | Track habits and break vices *(pre-release)* |
+| **[Collections](collections/)** | Data | Shared schemas for Issues, Captures, Calendar, People |
+| **[Sync Plugins](plugins/)** | Integrations | GitHub, Readwise, Google Calendar, Telegram, etc. |
+
+## Architecture
 
 ```
-                    THE SMART LAUNDROMAT
-
-    ┌─────────────────────────────────────────────────────┐
-    │                   AGENT HUB                         │
-    │              (the AI operators)                     │
-    │    ┌──────┐ ┌──────┐ ┌──────┐                      │
-    │    │Claude│ │ Qwen │ │Llama │  ← Chat on any page  │
-    │    └──┬───┘ └──┬───┘ └──┬───┘                      │
-    │       └────────┴────────┘                          │
-    │                │ uses collection tools             │
-    ├────────────────┼───────────────────────────────────┤
-    │                ▼                                   │
-    │   ┌─────────────────────────────────────────────┐ │
-    │   │              COLLECTIONS                     │ │
-    │   │         (baskets with built-in tools)        │ │
-    │   │                                              │ │
-    │   │  ISSUES      CAPTURES    CALENDAR   PEOPLE   │ │
-    │   │  find()      find()      today()    find()   │ │
-    │   │  search()    search()    upcoming() search() │ │
-    │   │  get()       recent()    search()   needs_   │ │
-    │   │  summarize() by_book()   followup() contact()│ │
-    │   └──────────────────────────────────────────────┘ │
-    │                ▲                                   │
-    │   ┌────────────┴────────────┐                     │
-    │   │        SYNC HUB         │ (the orchestrator)  │
-    │   └────────────┬────────────┘                     │
-    │   ┌────────────┴────────────────────────┐         │
-    │   │         SYNC PLUGINS                │         │
-    │   │  GitHub → Issues                    │         │
-    │   │  Readwise → Captures                │         │
-    │   │  Google Calendar → Calendar         │         │
-    │   │  Google Contacts → People           │         │
-    │   │  (future: Jira, GitLab, Outlook...) │         │
-    │   └─────────────────────────────────────┘         │
-    └─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                              THYMER                                        │
+│                                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐ │
+│  │                         AGENT HUB                                    │ │
+│  │                    (the AI operators)                                │ │
+│  │       ┌──────┐ ┌──────┐ ┌──────┐                                    │ │
+│  │       │Claude│ │ Qwen │ │Llama │  ← Chat on any page                │ │
+│  │       └──┬───┘ └──┬───┘ └──┬───┘                                    │ │
+│  │          └────────┴────────┘                                         │ │
+│  │                   │ uses collection tools                            │ │
+│  └───────────────────┼──────────────────────────────────────────────────┘ │
+│                      ▼                                                     │
+│  ┌────────────────────────────────────────┐  ┌────────────────────────┐  │
+│  │           SYNC COLLECTIONS             │  │  STANDALONE PLUGINS    │  │
+│  │      (baskets with built-in tools)     │  │                        │  │
+│  │                                        │  │  ┌──────────────────┐  │  │
+│  │  ISSUES    CAPTURES   CALENDAR  PEOPLE │  │  │    HABIT HUB     │  │  │
+│  │  find()    find()     today()   find() │  │  │  (pre-release)   │  │  │
+│  │  search()  search()   upcoming()search()│  │  │                  │  │  │
+│  │  get()     recent()   needs_    needs_ │  │  │  Journal input   │  │  │
+│  │  summarize by_book()  followup  contact│  │  │  Dashboard input │  │  │
+│  │            ▲                           │  │  │  → Habit logs    │  │  │
+│  │  ┌─────────┴─────────┐                 │  │  │  → Stats/Streaks │  │  │
+│  │  │     SYNC HUB      │ (orchestrator)  │  │  └──────────────────┘  │  │
+│  │  └─────────┬─────────┘                 │  │                        │  │
+│  │  ┌─────────┴──────────────────────┐    │  │  (future standalone   │  │
+│  │  │       SYNC PLUGINS             │    │  │   plugins go here)    │  │
+│  │  │  GitHub → Issues               │    │  │                        │  │
+│  │  │  Readwise → Captures           │    │  └────────────────────────┘  │
+│  │  │  Google Calendar → Calendar    │    │                              │
+│  │  │  Google Contacts → People      │    │                              │
+│  │  │  Telegram → Journal/Captures   │    │                              │
+│  │  └────────────────────────────────┘    │                              │
+│  └────────────────────────────────────────┘                              │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Same baskets. Different machines. Smart operators.**
+**Two architectures, one repo:**
 
-- **Agent Hub**: AI assistants that chat on pages and use collection tools ([docs](agenthub/))
-- **Collections**: Source-agnostic data + query tools (Issues, Captures, Calendar, People)
-- **Sync Hub**: The orchestrator that schedules syncs
-- **Sync Plugins**: "Washing machines" that fetch from sources and fill collections
+- **Sync Architecture** (left): External data flows through Sync Hub into shared Collections. Agents query collections with built-in tools.
+- **Standalone Plugins** (right): Self-contained plugins like HabitHub that manage their own data and UI.
+
+Both can be used independently or together.
 
 ### Why Collections Own Tools
 
