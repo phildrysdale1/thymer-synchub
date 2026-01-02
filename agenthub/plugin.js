@@ -1941,10 +1941,9 @@ Title:`;
             // Log to journal if available - link to chat page, mention agent
             if (window.syncHub?.logToJournal && chatRecord) {
                 const chatTitle = chatRecord.getName()?.trim() || 'Untitled Chat';
-                console.log(`[AgentHub] Logging to journal: chatted about ${chatTitle} (${agentName})`);
+                console.log(`[AgentHub] Logging to journal: chatted with ${agentName} about ${chatTitle}`);
                 await window.syncHub.logToJournal([{
-                    verb: `chatted about`,
-                    title: `${chatTitle} (${agentName})`,
+                    verb: `chatted with ${agentName} about`,
                     guid: chatRecord.guid,
                     major: false,
                 }], 'verbose');
