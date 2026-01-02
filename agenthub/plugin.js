@@ -1941,12 +1941,15 @@ Title:`;
             // Log to journal if available - link to chat page, mention agent
             if (window.syncHub?.logToJournal && chatRecord) {
                 const chatTitle = chatRecord.getName()?.trim() || 'Untitled Chat';
+                console.log(`[AgentHub] Logging to journal: chatted about ${chatTitle} (${agentName})`);
                 await window.syncHub.logToJournal([{
                     verb: `chatted about`,
                     title: `${chatTitle} (${agentName})`,
                     guid: chatRecord.guid,
                     major: false,
                 }], 'verbose');
+            } else {
+                console.log(`[AgentHub] Journal logging skipped: syncHub.logToJournal=${!!window.syncHub?.logToJournal}, chatRecord=${!!chatRecord}`);
             }
         } catch (e) {
             // Stats update is non-critical
