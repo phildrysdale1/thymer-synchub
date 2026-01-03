@@ -403,6 +403,13 @@ class Plugin extends CollectionPlugin {
             icon: 'bug',
             onSelected: () => this.dumpPageProps()
         });
+
+        // Repair logs command - re-sync props from text
+        this.ui.addCommandPaletteCommand({
+            label: 'HabitHub: Repair Logs',
+            icon: 'tool',
+            onSelected: () => this.repairLogs()
+        });
     }
 
     async dumpPageProps() {
@@ -417,6 +424,63 @@ class Plugin extends CollectionPlugin {
             const text = item.segments?.map(s => typeof s.text === 'string' ? s.text : '[obj]').join('') || '';
             console.log(`[HabitHub] ${item.type}: "${text.substring(0, 40)}" props:`, item.props);
         }
+    }
+
+    /**
+     * Repair log entries by re-syncing props from text
+     * For when someone ignores the flaming banner and edits anyway
+     */
+    async repairLogs() {
+        const record = this.ui.getActivePanel()?.getActiveRecord();
+        if (!record) {
+            this.ui.addToaster({
+                title: 'HabitHub',
+                message: 'Open a habit page first',
+                dismissible: true,
+                autoDestroyTime: 2000,
+            });
+            return;
+        }
+
+        const lineItems = await record.getLineItems();
+        let repaired = 0;
+        let skipped = 0;
+
+        for (const item of lineItems) {
+            const text = item.segments?.map(s => typeof s.text === 'string' ? s.text : '').join('') || '';
+
+            // Match log entry pattern: YYYY-MM-DD or YYYY-MM-DD - VALUE
+            const match = text.match(/^(\d{4}-\d{2}-\d{2})(?:\s*-\s*(\d+))?/);
+            if (!match) {
+                continue; // Not a log entry
+            }
+
+            const date = match[1];
+            const value = match[2] ? parseInt(match[2], 10) : 1;
+
+            // Check if props need repair
+            const currentDate = item.props?.habit_date;
+            const currentValue = item.props?.habit_value;
+
+            if (currentDate !== date || currentValue !== value) {
+                item.setMetaProperties({ habit_date: date, habit_value: value });
+                repaired++;
+                console.log(`[HabitHub] Repaired: ${date} = ${value}`);
+            } else {
+                skipped++;
+            }
+        }
+
+        const message = repaired > 0
+            ? `Repaired ${repaired} log entr${repaired === 1 ? 'y' : 'ies'}`
+            : 'All logs OK, nothing to repair';
+
+        this.ui.addToaster({
+            title: 'HabitHub',
+            message,
+            dismissible: true,
+            autoDestroyTime: 2000,
+        });
     }
 
     async openLogDialog() {
