@@ -26,6 +26,14 @@
       "active": true
     },
     {
+      "icon": "ti-hash",
+      "id": "content_hash",
+      "label": "Content Hash",
+      "type": "text",
+      "read_only": true,
+      "active": false
+    },
+    {
       "icon": "ti-align-left",
       "id": "content",
       "label": "Content",

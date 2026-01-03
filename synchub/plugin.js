@@ -1478,9 +1478,21 @@ class Plugin extends CollectionPlugin {
     }
 
     /**
+     * Simple hash function for content comparison.
+     * Not cryptographic - just for change detection.
+     */
+    hashContent(text) {
+        let hash = 0;
+        for (let i = 0; i < text.length; i++) {
+            hash = ((hash << 5) - hash) + text.charCodeAt(i);
+            hash |= 0;
+        }
+        return hash.toString(36);
+    }
+
+    /**
      * Replace all contents of a record with new markdown.
-     * TODO: When SDK exposes item.delete(), delete existing items first.
-     * For now, just inserts (causes duplicates on update).
+     * Uses hash to skip unchanged content, updates existing items in place.
      */
     async replaceContents(markdown, record) {
         if (!record) {
@@ -1488,13 +1500,99 @@ class Plugin extends CollectionPlugin {
             return 0;
         }
 
-        // TODO: Delete existing line items when API is available
-        // const existingItems = await record.getLineItems();
-        // for (const item of existingItems) {
-        //     await item.delete();
-        // }
+        // Check hash - skip if content unchanged
+        const newHash = this.hashContent(markdown);
+        const oldHash = record.text('content_hash');
+        if (newHash === oldHash) {
+            return 0; // No changes needed
+        }
 
-        return await this.insertMarkdown(markdown, record, null);
+        // Get existing top-level line items
+        const existingItems = await record.getLineItems();
+        const topLevelItems = existingItems.filter(i => i.parent_guid === record.guid);
+
+        // Parse new markdown into lines/blocks
+        const newLines = this.parseMarkdownToLines(markdown);
+
+        // Update existing items or create new ones
+        let itemIndex = 0;
+        let lastItem = null;
+
+        for (const lineData of newLines) {
+            if (itemIndex < topLevelItems.length) {
+                // Update existing item
+                const item = topLevelItems[itemIndex];
+                item.setSegments(lineData.segments);
+                // Note: can't change item type (heading vs text), but segments update works
+                lastItem = item;
+            } else {
+                // Create new item
+                const item = await record.createLineItem(null, lastItem, lineData.type);
+                if (item) {
+                    if (lineData.type === 'heading' && lineData.level > 1) {
+                        try { item.setHeadingSize?.(lineData.level); } catch(e) {}
+                    }
+                    item.setSegments(lineData.segments);
+                    lastItem = item;
+                }
+            }
+            itemIndex++;
+        }
+
+        // Clear any extra existing items (can't delete, so empty them)
+        for (let i = itemIndex; i < topLevelItems.length; i++) {
+            topLevelItems[i].setSegments([]);
+        }
+
+        // Store new hash
+        record.prop('content_hash')?.set(newHash);
+
+        return newLines.length;
+    }
+
+    /**
+     * Parse markdown into line data for replaceContents.
+     * Simplified version that handles basic formatting.
+     */
+    parseMarkdownToLines(markdown) {
+        const lines = [];
+        let inCode = false, codeLang = '', codeLines = [];
+
+        for (const line of markdown.split('\n')) {
+            // Code fence
+            const fenceMatch = line.match(/^(\s*)```(.*)$/);
+            if (fenceMatch) {
+                if (inCode) {
+                    // End of code block - add as single block
+                    lines.push({
+                        type: 'block',
+                        segments: [{ type: 'text', text: codeLines.join('\n') }],
+                        lang: codeLang
+                    });
+                    inCode = false;
+                    codeLang = '';
+                    codeLines = [];
+                } else {
+                    inCode = true;
+                    codeLang = fenceMatch[2].trim();
+                }
+                continue;
+            }
+
+            if (inCode) {
+                codeLines.push(line);
+                continue;
+            }
+
+            if (!line.trim()) continue;
+
+            const parsed = this.parseLine(line);
+            if (parsed) {
+                lines.push(parsed);
+            }
+        }
+
+        return lines;
     }
 
     /**

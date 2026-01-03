@@ -19,6 +19,15 @@
       "type": "text"
     },
     {
+      "icon": "ti-hash",
+      "id": "content_hash",
+      "label": "Content Hash",
+      "many": false,
+      "read_only": true,
+      "active": false,
+      "type": "text"
+    },
+    {
       "icon": "ti-abc",
       "id": "title",
       "label": "Title",
