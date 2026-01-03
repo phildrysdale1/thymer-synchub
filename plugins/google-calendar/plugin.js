@@ -206,6 +206,8 @@ class Plugin extends AppPlugin {
             defaultInterval: '15m',
             sync: async (ctx) => this.sync(ctx),
         });
+        // Register connect function for dashboard button
+        window.syncHub.registerConnect('google-calendar-sync', () => this.startConnect());
         console.log('[Google Calendar] Registered successfully');
     }
 

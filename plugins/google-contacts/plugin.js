@@ -194,6 +194,8 @@ class Plugin extends AppPlugin {
             defaultInterval: '1h', // Contacts don't change often
             sync: async (ctx) => this.sync(ctx),
         });
+        // Register connect function for dashboard button
+        window.syncHub.registerConnect('google-contacts-sync', () => this.startConnect());
         console.log('[Google Contacts] Registered successfully');
     }
 

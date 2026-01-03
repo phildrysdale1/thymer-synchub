@@ -1,9 +1,0 @@
-{
-  "id": "progressive-test",
-  "name": "Progressive Markdown Test",
-  "version": "0.1.0",
-  "description": "Test harness for progressive markdown rendering",
-  "author": "SyncHub",
-  "icon": "flask",
-  "type": "app"
-}

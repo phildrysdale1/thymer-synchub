@@ -172,6 +172,53 @@ const DASHBOARD_CSS = `
         color: var(--text-default);
         margin-bottom: 8px;
     }
+    /* Action buttons row */
+    .sync-card-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-default);
+    }
+    .sync-card-btn {
+        flex: 1;
+        padding: 6px 12px;
+        border: 1px solid var(--border-default);
+        border-radius: 6px;
+        background: var(--bg-default);
+        color: var(--text-default);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .sync-card-btn:hover {
+        background: var(--bg-hover);
+        border-color: var(--text-muted);
+    }
+    .sync-card-btn:active {
+        transform: scale(0.97);
+    }
+    .sync-card-btn.primary {
+        background: var(--enum-green-bg);
+        border-color: var(--enum-green-bg);
+        color: white;
+    }
+    .sync-card-btn.primary:hover {
+        filter: brightness(1.1);
+    }
+    .sync-card-btn.connect {
+        background: var(--enum-blue-bg);
+        border-color: var(--enum-blue-bg);
+        color: white;
+    }
+    .sync-card-btn.connect:hover {
+        filter: brightness(1.1);
+    }
+    .sync-card-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
 `;
 
 class Plugin extends CollectionPlugin {
@@ -190,7 +237,8 @@ class Plugin extends CollectionPlugin {
         window.syncHub = {
             register: (config) => this.registerPlugin(config),
             unregister: (pluginId) => this.unregisterPlugin(pluginId),
-            requestSync: (pluginId) => this.requestSync(pluginId),
+            requestSync: (pluginId, options) => this.requestSync(pluginId, options),
+            registerConnect: (pluginId, connectFn) => this.registerConnect(pluginId, connectFn),
             getStatus: (pluginId) => this.getPluginStatus(pluginId),
             // Markdown utilities
             insertMarkdown: (markdown, record, afterItem) => this.insertMarkdown(markdown, record, afterItem),
@@ -212,6 +260,9 @@ class Plugin extends CollectionPlugin {
 
         // Track registered sync functions (MUST be before event dispatch!)
         this.syncFunctions = new Map();
+
+        // Track registered connect functions for OAuth plugins
+        this.connectFunctions = new Map();
 
         // Track registered collection tools for agents
         this.collectionTools = new Map();
@@ -398,8 +449,12 @@ class Plugin extends CollectionPlugin {
                         ? '<span class="ti ti-blinking-dot"></span>'
                         : '';
 
+                    // Check if this plugin has a connect function (OAuth)
+                    const hasConnect = this.connectFunctions.has(pluginId);
+                    const isSyncing = status === 'syncing';
+
                     card.innerHTML = `
-                        <div class="sync-card-header">
+                        <div class="sync-card-header" style="cursor: pointer;">
                             <span class="sync-card-icon ti ti-${icon}"></span>
                             <span class="sync-card-name">${this.escapeHtml(pluginName)}</span>
                             <span class="sync-card-dot ${health.dotClass}">${dotContent}</span>
@@ -414,11 +469,33 @@ class Plugin extends CollectionPlugin {
                                 `<div class="sync-card-error" title="${this.escapeHtml(record.prop('last_error')?.text() || '')}">${this.escapeHtml(record.prop('last_error')?.text()?.substring(0, 40) || '')}...</div>`
                                 : ''}
                         </div>
+                        <div class="sync-card-actions">
+                            ${hasConnect ? `<button class="sync-card-btn connect" data-action="connect">Connect</button>` : ''}
+                            <button class="sync-card-btn primary" data-action="sync" ${isSyncing ? 'disabled' : ''}>${isSyncing ? 'Syncing...' : 'Sync'}</button>
+                            <button class="sync-card-btn" data-action="full" ${isSyncing ? 'disabled' : ''}>Full</button>
+                        </div>
                     `;
 
-                    // Click to open plugin config
-                    card.addEventListener('click', () => {
+                    // Header click opens config
+                    card.querySelector('.sync-card-header').addEventListener('click', (e) => {
+                        e.stopPropagation();
                         viewContext.openRecordInOtherPanel(record.guid);
+                    });
+
+                    // Button clicks
+                    card.querySelectorAll('.sync-card-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const action = btn.getAttribute('data-action');
+                            if (action === 'sync') {
+                                this.requestSync(pluginId);
+                            } else if (action === 'full') {
+                                this.requestSync(pluginId, { full: true });
+                            } else if (action === 'connect') {
+                                const connectFn = this.connectFunctions.get(pluginId);
+                                if (connectFn) connectFn();
+                            }
+                        });
                     });
 
                     grid.appendChild(card);
@@ -678,13 +755,35 @@ class Plugin extends CollectionPlugin {
     // Sync Execution
     // =========================================================================
 
-    async requestSync(pluginId) {
+    /**
+     * Request a sync for a plugin
+     * @param {string} pluginId - The plugin ID
+     * @param {Object} options - Optional settings
+     * @param {boolean} options.full - If true, clears last_run to force full sync
+     */
+    async requestSync(pluginId, options = {}) {
         const record = await this.findPluginRecord(pluginId);
         if (!record) {
             this.log(`Cannot sync unknown plugin: ${pluginId}`, 'error');
             return;
         }
+
+        // Full sync: clear last_run to force fetching everything
+        if (options.full) {
+            record.prop('last_run')?.set(null);
+            console.log(`[SyncHub] Full sync requested for ${pluginId}, cleared last_run`);
+        }
+
         await this.runSync(pluginId, record);
+    }
+
+    /**
+     * Register a connect function for OAuth plugins
+     * Called from dashboard "Connect" button
+     */
+    registerConnect(pluginId, connectFn) {
+        this.connectFunctions.set(pluginId, connectFn);
+        console.log(`[SyncHub] Registered connect function for: ${pluginId}`);
     }
 
     async runSync(pluginId, record) {

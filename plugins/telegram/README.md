@@ -98,6 +98,35 @@ Make sure the Token field has your bot token from BotFather.
 
 The `last_offset` tracks processed messages. If corrupted, you might see duplicates. Fix by removing `last_offset` from config.
 
+### "No sync function for: telegram-sync"
+
+The Sync Hub record exists but the plugin's sync function isn't registered. Check:
+
+1. **Plugin enabled?** Go to Plugins panel → ensure Telegram is enabled (not just installed)
+
+2. **Check console for registration:**
+   ```
+   [SyncHub] Registered plugin: telegram-sync (N total)
+   ```
+   If missing, the plugin never registered.
+
+3. **Check load order:** Look for these messages in order:
+   ```
+   [SyncHub] Ready, dispatching synchub-ready event
+   [SyncHub] Registered plugin: telegram-sync
+   ```
+
+4. **JavaScript errors?** Red errors during load prevent registration.
+
+5. **Force re-registration:** In console:
+   ```javascript
+   window.dispatchEvent(new CustomEvent('synchub-ready'))
+   ```
+
+6. **Reload the plugin:** Disable → wait → re-enable
+
+7. **Orphaned record?** If plugin was uninstalled, delete the "Telegram" record from Sync Hub collection, then reinstall.
+
 ## Future Features
 
 - [ ] Web URL fetching with readability extraction
