@@ -194,7 +194,7 @@ class Plugin extends AppPlugin {
         const myRecord = syncHubRecords.find(r => r.text('plugin_id') === 'google-calendar-sync');
 
         if (!myRecord) {
-            log('Google Calendar record not found in Sync Hub');
+            debug('Google Calendar record not found in Sync Hub');
             return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 

@@ -55,7 +55,7 @@ class Plugin extends AppPlugin {
         const myRecord = syncHubRecords.find(r => r.text('plugin_id') === 'readwise-sync');
 
         if (!myRecord) {
-            log('Readwise Sync record not found in Sync Hub');
+            debug('Readwise Sync record not found in Sync Hub');
             return { summary: 'Not configured', created: 0, updated: 0 };
         }
 
@@ -63,7 +63,7 @@ class Plugin extends AppPlugin {
         const lastRun = myRecord.prop('last_run')?.date();
 
         if (!token) {
-            log('No Readwise token configured');
+            debug('No Readwise token configured');
             return { summary: 'No token', created: 0, updated: 0 };
         }
 

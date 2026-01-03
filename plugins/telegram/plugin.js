@@ -61,7 +61,7 @@ class Plugin extends AppPlugin {
         const myRecord = syncHubRecords.find(r => r.text('plugin_id') === 'telegram-sync');
 
         if (!myRecord) {
-            log('Telegram Sync record not found in Sync Hub');
+            debug('Telegram Sync record not found in Sync Hub');
             return { summary: 'Not configured', created: 0, updated: 0 };
         }
 

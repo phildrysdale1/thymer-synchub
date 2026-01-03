@@ -64,7 +64,7 @@ class Plugin extends AppPlugin {
         const myRecord = syncHubRecords.find(r => r.text('plugin_id') === 'github-sync');
 
         if (!myRecord) {
-            log('GitHub Sync record not found in Sync Hub');
+            debug('GitHub Sync record not found in Sync Hub');
             return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 
@@ -73,7 +73,7 @@ class Plugin extends AppPlugin {
         const lastRun = myRecord.prop('last_run')?.date();
 
         if (!token) {
-            log('No GitHub token configured');
+            debug('No GitHub token configured');
             return { summary: 'No token', created: 0, updated: 0, changes: [] };
         }
 
@@ -82,7 +82,7 @@ class Plugin extends AppPlugin {
         try {
             config = configJson ? JSON.parse(configJson) : {};
         } catch (e) {
-            log('Invalid config JSON, using defaults');
+            debug('Invalid config JSON, using defaults');
         }
 
         // Support both old format (repos array) and new format (projects mapping)
@@ -104,7 +104,7 @@ class Plugin extends AppPlugin {
         }
 
         if (repos.length === 0 && !query) {
-            log('No repos or query configured');
+            debug('No repos or query configured');
             return { summary: 'No repos configured', created: 0, updated: 0, changes: [] };
         }
 

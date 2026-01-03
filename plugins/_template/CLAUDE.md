@@ -65,13 +65,13 @@ onUnload() {
 - `debug(msg)` - Shown only at Debug level. Use for routine messages.
 
 ```javascript
-// WRONG - spams journal
+// WRONG - log() is for errors only, spams activity log
 if (!token) {
     log('No token configured');
     return { summary: 'No token' };
 }
 
-// RIGHT - silent at Info level
+// RIGHT - debug() for routine/skip messages, silent at Info level
 if (!token) {
     debug('No token configured');
     return { summary: 'No token' };
