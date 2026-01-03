@@ -22,27 +22,6 @@ class Plugin extends AppPlugin {
     // =========================================================================
 
     async onLoad() {
-        // Command palette: Connect Google Calendar
-        this.connectCommand = this.ui.addCommandPaletteCommand({
-            label: 'Connect Google Calendar',
-            icon: 'link',
-            onSelected: () => this.startConnect()
-        });
-
-        // Command palette: Full Sync
-        this.fullSyncCommand = this.ui.addCommandPaletteCommand({
-            label: 'Google Calendar Full Sync',
-            icon: 'calendar',
-            onSelected: () => this.triggerSync(true)
-        });
-
-        // Command palette: Incremental Sync
-        this.incrementalSyncCommand = this.ui.addCommandPaletteCommand({
-            label: 'Google Calendar Sync',
-            icon: 'calendar',
-            onSelected: () => this.triggerSync(false)
-        });
-
         // Listen for auth callback from popup
         this.messageHandler = (event) => this.handleAuthMessage(event);
         window.addEventListener('message', this.messageHandler);
@@ -58,15 +37,6 @@ class Plugin extends AppPlugin {
     }
 
     onUnload() {
-        if (this.connectCommand) {
-            this.connectCommand.remove();
-        }
-        if (this.fullSyncCommand) {
-            this.fullSyncCommand.remove();
-        }
-        if (this.incrementalSyncCommand) {
-            this.incrementalSyncCommand.remove();
-        }
         if (this.messageHandler) {
             window.removeEventListener('message', this.messageHandler);
         }
@@ -140,8 +110,10 @@ class Plugin extends AppPlugin {
             await this.saveToken(config);
             console.log('[Google Calendar] Token saved successfully');
 
-            // Trigger initial sync
-            this.triggerSync(true);
+            // Trigger initial full sync
+            if (window.syncHub) {
+                window.syncHub.requestSync('google-calendar-sync', { full: true, manual: true });
+            }
         } catch (e) {
             console.error('[Google Calendar] Failed to save token:', e);
         }
@@ -189,13 +161,6 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async triggerSync(forceFullSync = false) {
-        this.forceFullSync = forceFullSync;
-        if (window.syncHub) {
-            await window.syncHub.requestSync('google-calendar-sync');
-        }
-        this.forceFullSync = false;
-    }
 
     async registerWithSyncHub() {
         console.log('[Google Calendar] Registering with Sync Hub...');

@@ -8,20 +8,6 @@
 class Plugin extends AppPlugin {
 
     async onLoad() {
-        // Command palette: Full Sync
-        this.fullSyncCommand = this.ui.addCommandPaletteCommand({
-            label: 'Readwise Full Sync',
-            icon: 'books',
-            onSelected: () => this.triggerSync(true)
-        });
-
-        // Command palette: Incremental Sync
-        this.incrementalSyncCommand = this.ui.addCommandPaletteCommand({
-            label: 'Readwise Incremental Sync',
-            icon: 'books',
-            onSelected: () => this.triggerSync(false)
-        });
-
         // Listen for Sync Hub ready event (handles reloads)
         this.syncHubReadyHandler = () => this.registerWithSyncHub();
         window.addEventListener('synchub-ready', this.syncHubReadyHandler);
@@ -33,20 +19,10 @@ class Plugin extends AppPlugin {
     }
 
     onUnload() {
-        if (this.fullSyncCommand) this.fullSyncCommand.remove();
-        if (this.incrementalSyncCommand) this.incrementalSyncCommand.remove();
         if (this.syncHubReadyHandler) {
             window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
         }
         if (window.syncHub) window.syncHub.unregister('readwise-sync');
-    }
-
-    async triggerSync(forceFullSync = false) {
-        this.forceFullSync = forceFullSync;
-        if (window.syncHub) {
-            await window.syncHub.requestSync('readwise-sync');
-        }
-        this.forceFullSync = false;
     }
 
     async registerWithSyncHub() {

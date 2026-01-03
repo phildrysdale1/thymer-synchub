@@ -188,18 +188,33 @@ Each plugin record in Sync Hub has:
 | Last Run | When sync last completed |
 | Last Error | Most recent error message |
 
+## Dashboard
+
+Switch to the **Dashboard** view in the Sync Hub collection to see all plugins at a glance:
+
+```
+┌─────────────────────────────┐
+│  ◉ GitHub                   │  ← Status indicator
+│         5m                  │  ← Sync interval
+│       interval              │
+│    ● synced 5m ago          │  ← Last sync time
+│  ┌──────┐ ┌──────┐          │
+│  │ Sync │ │ Full │          │  ← Action buttons
+│  └──────┘ └──────┘          │
+└─────────────────────────────┘
+```
+
+Each card shows:
+- **Status dot**: Green (healthy), Yellow (stale), Red (error)
+- **Sync button**: Trigger incremental sync
+- **Full button**: Clear history and sync everything
+- **Connect button**: OAuth flow (for Google plugins)
+
 ## Command Palette
 
 - **Sync Hub: Sync All** - Trigger all enabled syncs
 - **Sync Hub: Reset Stuck Syncs** - Reset any stuck "Syncing" statuses
 - **Paste Markdown** - Insert markdown into current record
-- **GitHub Full Sync** / **Incremental Sync**
-- **Readwise Full Sync** / **Incremental Sync**
-- **Google Calendar Full Sync** / **Sync**
-- **Connect Google Calendar** - OAuth flow
-- **Google Contacts Full Sync** / **Sync**
-- **Connect Google Contacts** - OAuth flow (RESTRICTED scope)
-- **Telegram Sync**
 
 ## Creating New Plugins
 

@@ -17,13 +17,6 @@ class Plugin extends AppPlugin {
     // =========================================================================
 
     async onLoad() {
-        // Command palette: Manual sync
-        this.syncCommand = this.ui.addCommandPaletteCommand({
-            label: 'PLUGIN_NAME Sync',
-            icon: 'PLUGIN_ICON',
-            onSelected: () => this.triggerSync()
-        });
-
         // Listen for Sync Hub ready event (handles reloads)
         this.syncHubReadyHandler = () => this.registerWithSyncHub();
         window.addEventListener('synchub-ready', this.syncHubReadyHandler);
@@ -35,20 +28,11 @@ class Plugin extends AppPlugin {
     }
 
     onUnload() {
-        if (this.syncCommand) {
-            this.syncCommand.remove();
-        }
         if (this.syncHubReadyHandler) {
             window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
         }
         if (window.syncHub) {
             window.syncHub.unregister('PLUGIN_ID');
-        }
-    }
-
-    async triggerSync() {
-        if (window.syncHub) {
-            await window.syncHub.requestSync('PLUGIN_ID');
         }
     }
 

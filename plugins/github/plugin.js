@@ -8,20 +8,6 @@
 class Plugin extends AppPlugin {
 
     async onLoad() {
-        // Command palette: Full Sync (ignores last_run)
-        this.fullSyncCommand = this.ui.addCommandPaletteCommand({
-            label: 'GitHub Full Sync',
-            icon: 'brand-github',
-            onSelected: () => this.triggerSync(true)
-        });
-
-        // Command palette: Incremental Sync (uses last_run)
-        this.incrementalSyncCommand = this.ui.addCommandPaletteCommand({
-            label: 'GitHub Incremental Sync',
-            icon: 'brand-github',
-            onSelected: () => this.triggerSync(false)
-        });
-
         // Listen for Sync Hub ready event (handles reloads)
         this.syncHubReadyHandler = () => this.registerWithSyncHub();
         window.addEventListener('synchub-ready', this.syncHubReadyHandler);
@@ -33,26 +19,12 @@ class Plugin extends AppPlugin {
     }
 
     onUnload() {
-        if (this.fullSyncCommand) {
-            this.fullSyncCommand.remove();
-        }
-        if (this.incrementalSyncCommand) {
-            this.incrementalSyncCommand.remove();
-        }
         if (this.syncHubReadyHandler) {
             window.removeEventListener('synchub-ready', this.syncHubReadyHandler);
         }
         if (window.syncHub) {
             window.syncHub.unregister('github-sync');
         }
-    }
-
-    async triggerSync(forceFullSync = false) {
-        this.forceFullSync = forceFullSync;
-        if (window.syncHub) {
-            await window.syncHub.requestSync('github-sync');
-        }
-        this.forceFullSync = false;
     }
 
     async registerWithSyncHub() {
