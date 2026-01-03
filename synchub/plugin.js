@@ -488,9 +488,9 @@ class Plugin extends CollectionPlugin {
                             e.stopPropagation();
                             const action = btn.getAttribute('data-action');
                             if (action === 'sync') {
-                                this.requestSync(pluginId);
+                                this.requestSync(pluginId, { manual: true });
                             } else if (action === 'full') {
-                                this.requestSync(pluginId, { full: true });
+                                this.requestSync(pluginId, { full: true, manual: true });
                             } else if (action === 'connect') {
                                 const connectFn = this.connectFunctions.get(pluginId);
                                 if (connectFn) connectFn();
@@ -760,6 +760,7 @@ class Plugin extends CollectionPlugin {
      * @param {string} pluginId - The plugin ID
      * @param {Object} options - Optional settings
      * @param {boolean} options.full - If true, clears last_run to force full sync
+     * @param {boolean} options.manual - If true, always show toast (for UI-triggered syncs)
      */
     async requestSync(pluginId, options = {}) {
         const record = await this.findPluginRecord(pluginId);
@@ -774,7 +775,7 @@ class Plugin extends CollectionPlugin {
             console.log(`[SyncHub] Full sync requested for ${pluginId}, cleared last_run`);
         }
 
-        await this.runSync(pluginId, record);
+        await this.runSync(pluginId, record, { manual: options.manual });
     }
 
     /**
@@ -786,7 +787,7 @@ class Plugin extends CollectionPlugin {
         console.log(`[SyncHub] Registered connect function for: ${pluginId}`);
     }
 
-    async runSync(pluginId, record) {
+    async runSync(pluginId, record, options = {}) {
         const syncFn = this.syncFunctions.get(pluginId);
         if (!syncFn) {
             this.log(`No sync function for: ${pluginId}`, 'warn');
@@ -796,6 +797,7 @@ class Plugin extends CollectionPlugin {
         const logLevel = record.prop('log_level')?.choice() || 'info';
         const toastLevel = record.prop('toast')?.choice() || 'new_records';
         const journalLevel = record.prop('journal')?.choice() || 'none';
+        const isManual = options.manual === true;
 
         // Update status to syncing
         record.prop('status')?.setChoice('syncing');
@@ -863,7 +865,8 @@ class Plugin extends CollectionPlugin {
                     await this.appendLog(record.guid, `${summary} (${duration}ms)`, logLevel);
                 }
 
-                if (this.shouldToast(toastLevel, result)) {
+                // Always toast for manual syncs, otherwise respect toast level
+                if (isManual || this.shouldToast(toastLevel, result)) {
                     this.ui.addToaster({
                         title: pluginId,
                         message: result?.summary || 'Sync complete',
