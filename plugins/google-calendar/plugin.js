@@ -394,9 +394,8 @@ class Plugin extends AppPlugin {
             };
 
             if (existingRecord) {
-                // Check if needs update (compare updated timestamp)
-                const currentUpdatedAt = existingRecord.text('updated_at');
-                if (currentUpdatedAt !== event.updated) {
+                // Check if actual content changed (not just Google's updated timestamp)
+                if (this.hasContentChanged(existingRecord, eventData)) {
                     this.updateRecord(existingRecord, eventData);
                     updated++;
                     debug(`Updated: ${eventData.title}`);
@@ -527,6 +526,45 @@ class Plugin extends AppPlugin {
         this.setField(record, 'url', data.url);
         this.setField(record, 'all_day', data.all_day);
         this.setField(record, 'updated_at', data.updated_at);
+    }
+
+    /**
+     * Compare actual event content to detect real changes.
+     * More reliable than comparing Google's updated timestamp.
+     */
+    hasContentChanged(existingRecord, newData) {
+        // Compare title
+        if (existingRecord.getName() !== newData.title) return true;
+
+        // Compare key fields
+        const fieldsToCompare = ['location', 'status', 'calendar', 'attendees', 'meet_link'];
+        for (const field of fieldsToCompare) {
+            const current = existingRecord.text(field) || '';
+            const newVal = newData[field] || '';
+            if (current !== newVal) return true;
+        }
+
+        // Compare time_period (stored as Thymer DateTime range)
+        const currentPeriod = existingRecord.prop('time_period');
+        if (currentPeriod) {
+            const currentStart = currentPeriod.date();
+            const currentEnd = currentPeriod.endDate?.();
+
+            // Compare start times
+            if (currentStart && newData.start) {
+                const newStart = new Date(newData.start);
+                if (currentStart.getTime() !== newStart.getTime()) return true;
+            }
+
+            // Compare end times
+            if (currentEnd && newData.end) {
+                const newEnd = new Date(newData.end);
+                if (currentEnd.getTime() !== newEnd.getTime()) return true;
+            }
+        }
+
+        // No meaningful changes detected
+        return false;
     }
 
     setField(record, fieldId, value) {

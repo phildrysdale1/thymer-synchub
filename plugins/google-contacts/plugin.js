@@ -350,11 +350,8 @@ class Plugin extends AppPlugin {
             }
 
             if (existingRecord) {
-                // Check if needs update (compare metadata updateTime)
-                const currentUpdatedAt = existingRecord.text('updated_at');
-                const newUpdatedAt = contact.metadata?.sources?.[0]?.updateTime || '';
-
-                if (currentUpdatedAt !== newUpdatedAt) {
+                // Check if actual content changed (not just Google's updateTime)
+                if (this.hasContentChanged(existingRecord, contactData)) {
                     this.updateRecord(existingRecord, contactData);
                     updated++;
                     debug(`Updated: ${contactData.title}`);
@@ -487,6 +484,26 @@ class Plugin extends AppPlugin {
         if (!record.prop('created_at')?.date()) {
             this.setDateTimeField(record, 'created_at', new Date().toISOString());
         }
+    }
+
+    /**
+     * Compare actual contact content to detect real changes.
+     * More reliable than comparing Google's updateTime.
+     */
+    hasContentChanged(existingRecord, newData) {
+        // Compare name (title)
+        if (existingRecord.getName() !== newData.title) return true;
+
+        // Compare key text fields
+        const fieldsToCompare = ['email', 'phone', 'organization', 'job_title'];
+        for (const field of fieldsToCompare) {
+            const current = existingRecord.text(field) || '';
+            const newVal = newData[field] || '';
+            if (current !== newVal) return true;
+        }
+
+        // No meaningful changes detected
+        return false;
     }
 
     setField(record, fieldId, value) {
