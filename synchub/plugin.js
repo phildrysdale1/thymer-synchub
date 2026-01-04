@@ -156,9 +156,6 @@ const DASHBOARD_CSS = `
     .sync-summary-dot.healthy { background: var(--enum-green-bg); }
     .sync-summary-dot.warning { background: var(--enum-orange-bg); }
     .sync-summary-dot.error { background: var(--enum-red-bg); }
-    .sync-summary-dot.desktop-connected { background: var(--enum-blue-bg); }
-    .sync-summary-dot.desktop-disconnected { background: var(--text-muted); opacity: 0.5; }
-    .sync-summary-item.desktop-status { margin-left: auto; }
     .sync-dashboard-empty {
         text-align: center;
         padding: 60px 20px;
@@ -259,6 +256,9 @@ class Plugin extends CollectionPlugin {
             registerCollectionTools: (config) => this.registerCollectionTools(config),
             getRegisteredTools: () => this.getRegisteredTools(),
             executeToolCall: (name, args) => this.executeToolCall(name, args),
+            // Desktop bridge API
+            getPlugins: () => this._getPluginList(),
+            syncAll: () => this.syncAll(),
         };
 
         // Track registered sync functions (MUST be before event dispatch!)
@@ -282,15 +282,6 @@ class Plugin extends CollectionPlugin {
             htmlLabel: this.buildStatusLabel('idle'),
             tooltip: 'Sync Hub - Initializing...',
             onClick: () => this.onStatusBarClick()
-        });
-
-        // MCP status bar item
-        this.mcpConnectedAt = null;
-        this.mcpActivityLog = []; // Track recent MCP calls
-        this.mcpStatusBarItem = this.ui.addStatusBarItem({
-            htmlLabel: this.buildMcpLabel(false),
-            tooltip: 'MCP disconnected - Click to connect',
-            onClick: () => this.onMcpStatusBarClick()
         });
 
         // Command palette: Paste Markdown
@@ -325,14 +316,9 @@ class Plugin extends CollectionPlugin {
 
         // Periodic status bar refresh (every 30s to update relative times)
         this.statusBarRefreshInterval = setInterval(() => this.updateStatusBar(), 30000);
-
-        // Connect to Thymer Desktop (if running)
-        this.connectToDesktop();
     }
 
     onUnload() {
-        // Disconnect from desktop
-        this.disconnectFromDesktop();
         if (this.pasteCommand) {
             this.pasteCommand.remove();
         }
@@ -344,9 +330,6 @@ class Plugin extends CollectionPlugin {
         }
         if (this.statusBarItem) {
             this.statusBarItem.remove();
-        }
-        if (this.mcpStatusBarItem) {
-            this.mcpStatusBarItem.remove();
         }
         if (this.statusBarRefreshInterval) {
             clearInterval(this.statusBarRefreshInterval);
@@ -525,7 +508,6 @@ class Plugin extends CollectionPlugin {
 
                 // Summary row
                 const summaryClass = errorCount > 0 ? 'error' : (enabledCount === healthyCount ? 'healthy' : 'warning');
-                const desktopConnected = this.isDesktopConnected();
                 const summary = document.createElement('div');
                 summary.className = 'sync-dashboard-summary';
                 summary.innerHTML = `
@@ -536,10 +518,6 @@ class Plugin extends CollectionPlugin {
                     <div class="sync-summary-item">
                         <span class="sync-summary-dot ${summaryClass}"></span>
                         <span>${errorCount > 0 ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : 'All healthy'}</span>
-                    </div>
-                    <div class="sync-summary-item desktop-status">
-                        <span class="sync-summary-dot ${desktopConnected ? 'desktop-connected' : 'desktop-disconnected'}"></span>
-                        <span>Desktop ${desktopConnected ? 'connected' : 'offline'}</span>
                     </div>
                 `;
                 container.appendChild(summary);
@@ -1969,385 +1947,20 @@ class Plugin extends CollectionPlugin {
     // =========================================================================
 
     /**
-     * Build HTML label for SyncHub status bar (ti-server icon)
+     * Format a date as relative time (e.g., "5m ago")
      */
-    buildStatusLabel(state, extra = '') {
-        const baseStyle = 'font-size: 16px;';
-        let style = '';
-        let iconStyle = baseStyle;
+    formatRelativeTime(date) {
+        const now = new Date();
+        const diff = now - date;
+        const seconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
 
-        switch (state) {
-            case 'syncing':
-                // Glow animation for syncing
-                style = `<style>
-                    @keyframes syncGlow {
-                        0%, 100% { filter: drop-shadow(0 0 2px #60a5fa); opacity: 1; }
-                        50% { filter: drop-shadow(0 0 6px #60a5fa); opacity: 0.8; }
-                    }
-                </style>`;
-                iconStyle = `${baseStyle} color: #60a5fa; animation: syncGlow 1s ease-in-out infinite;`;
-                break;
-            case 'error':
-                iconStyle = `${baseStyle} color: #f87171;`;
-                break;
-            case 'idle':
-                iconStyle = `${baseStyle} color: #4ade80;`;
-                break;
-            case 'disabled':
-                iconStyle = `${baseStyle} opacity: 0.4;`;
-                break;
-            default:
-                iconStyle = `${baseStyle} opacity: 0.4;`;
-        }
-
-        return `${style}<span class="ti ti-server" style="${iconStyle}"></span>`;
-    }
-
-    /**
-     * Build HTML label for MCP status bar (ti-wand icon)
-     */
-    buildMcpLabel(connected, active = false) {
-        const baseStyle = 'font-size: 16px;';
-
-        if (connected) {
-            if (active) {
-                // Glow animation for activity
-                return `<style>
-                    @keyframes mcpGlow {
-                        0% { filter: drop-shadow(0 0 2px #a78bfa); }
-                        100% { filter: drop-shadow(0 0 8px #a78bfa) drop-shadow(0 0 12px #a78bfa); }
-                    }
-                </style>
-                <span class="ti ti-wand" style="${baseStyle} color: #a78bfa; animation: mcpGlow 0.15s ease-out;"></span>`;
-            }
-            return `<span class="ti ti-wand" style="${baseStyle} color: #a78bfa;"></span>`;
-        } else {
-            return `<span class="ti ti-wand" style="${baseStyle} opacity: 0.3;"></span>`;
-        }
-    }
-
-    /**
-     * Flash MCP indicator on activity
-     */
-    flashMcpActivity() {
-        if (!this.mcpStatusBarItem || !this.isDesktopConnected()) return;
-
-        // Show active state with glow
-        this.mcpStatusBarItem.setHtmlLabel(this.buildMcpLabel(true, true));
-
-        // Return to idle after flash
-        clearTimeout(this.mcpFlashTimeout);
-        this.mcpFlashTimeout = setTimeout(() => {
-            if (this.isDesktopConnected()) {
-                this.mcpStatusBarItem.setHtmlLabel(this.buildMcpLabel(true, false));
-            }
-        }, 150);
-    }
-
-    /**
-     * Update MCP status bar
-     */
-    updateMcpStatusBar() {
-        if (!this.mcpStatusBarItem) return;
-
-        const connected = this.isDesktopConnected();
-        this.mcpStatusBarItem.setHtmlLabel(this.buildMcpLabel(connected));
-
-        if (connected) {
-            const toolCount = this.getRegisteredTools().length;
-            const duration = this.mcpConnectedAt
-                ? this.formatRelativeTime(this.mcpConnectedAt)
-                : 'just now';
-            this.mcpStatusBarItem.setTooltip(`MCP connected (${toolCount} tools) - Connected ${duration}`);
-        } else {
-            this.mcpStatusBarItem.setTooltip('MCP disconnected - Click to connect this window');
-        }
-    }
-
-    /**
-     * Handle MCP status bar click - show popup menu
-     */
-    onMcpStatusBarClick(event) {
-        this.showMcpPopup(event);
-    }
-
-    /**
-     * Show MCP popup menu (cmdpal-style)
-     */
-    showMcpPopup(event) {
-        // Remove existing popup if any
-        this.closeMcpPopup();
-
-        const connected = this.isDesktopConnected();
-        const toolCount = this.getRegisteredTools().length;
-        const duration = this.mcpConnectedAt ? this.formatRelativeTime(this.mcpConnectedAt) : '';
-
-        // Build options
-        const options = [];
-
-        // Status header
-        options.push({
-            type: 'heading',
-            label: 'MCP Status'
-        });
-
-        // Connection status
-        if (connected) {
-            options.push({
-                type: 'info',
-                icon: 'ti-circle-check',
-                iconColor: 'var(--text-status-online)',
-                label: `Connected (${toolCount} tools)`
-            });
-            options.push({
-                type: 'info',
-                label: `Connected ${duration}`
-            });
-        } else {
-            options.push({
-                type: 'info',
-                icon: 'ti-circle-x',
-                iconColor: 'var(--text-status-offline)',
-                label: 'Disconnected'
-            });
-        }
-
-        // Divider
-        options.push({ type: 'divider' });
-
-        // Actions
-        if (connected) {
-            options.push({
-                type: 'action',
-                icon: 'ti-refresh',
-                label: 'Reconnect',
-                action: () => this.connectToDesktop()
-            });
-            options.push({
-                type: 'action',
-                icon: 'ti-plug-off',
-                label: 'Disconnect',
-                action: () => this.disconnectFromDesktop()
-            });
-            options.push({
-                type: 'action',
-                icon: 'ti-list',
-                label: 'Show Tools (console)',
-                action: () => {
-                    console.log('[MCP] Registered tools:', this.getRegisteredTools().map(t => t.function?.name || t.name));
-                }
-            });
-        } else {
-            options.push({
-                type: 'action',
-                icon: 'ti-plug',
-                label: 'Connect',
-                action: () => this.connectToDesktop()
-            });
-        }
-
-        // Divider + activity log
-        options.push({ type: 'divider' });
-        options.push({
-            type: 'action',
-            icon: 'ti-activity',
-            label: 'Activity Log',
-            action: () => this.showMcpActivityPopup()
-        });
-
-        this.mcpPopup = this.createCmdpalPopup(options, event);
-    }
-
-    /**
-     * Create a cmdpal-style popup
-     */
-    createCmdpalPopup(options, event) {
-        const popup = document.createElement('div');
-        popup.className = 'synchub-mcp-popup';
-        popup.style.cssText = `
-            position: fixed;
-            width: 260px;
-            z-index: 9999;
-            background: var(--background-primary);
-            border: 1px solid var(--divider-color);
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            padding: 8px 0;
-            font-size: 13px;
-        `;
-
-        // Position near the click (above the status bar)
-        const rect = event?.target?.getBoundingClientRect?.();
-        if (rect) {
-            popup.style.bottom = `${window.innerHeight - rect.top + 8}px`;
-            popup.style.left = `${Math.max(10, rect.left - 100)}px`;
-        } else {
-            popup.style.bottom = '50px';
-            popup.style.right = '20px';
-        }
-
-        let html = '';
-
-        for (const opt of options) {
-            if (opt.type === 'heading') {
-                html += `<div style="padding: 6px 12px; font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase;">${opt.label}</div>`;
-            } else if (opt.type === 'info') {
-                const iconHtml = opt.icon
-                    ? `<span class="ti ${opt.icon}" style="margin-right: 8px; ${opt.iconColor ? `color: ${opt.iconColor};` : ''}"></span>`
-                    : '<span style="width: 24px; display: inline-block;"></span>';
-                html += `<div style="padding: 6px 12px; display: flex; align-items: center;">${iconHtml}<span>${opt.label}</span></div>`;
-            } else if (opt.type === 'divider') {
-                html += `<div style="border-top: 1px solid var(--divider-color); margin: 6px 0;"></div>`;
-            } else if (opt.type === 'action') {
-                const iconHtml = opt.icon ? `<span class="ti ${opt.icon}" style="margin-right: 8px;"></span>` : '<span style="width: 24px; display: inline-block;"></span>';
-                html += `<div class="autocomplete--option synchub-popup-action" data-label="${opt.label}" style="padding: 6px 12px; display: flex; align-items: center; cursor: pointer;">${iconHtml}<span>${opt.label}</span></div>`;
-            }
-        }
-
-        popup.innerHTML = html;
-
-        // Add click handlers and hover effects for actions
-        popup.querySelectorAll('.synchub-popup-action').forEach(el => {
-            const label = el.dataset.label;
-            const opt = options.find(o => o.type === 'action' && o.label === label);
-
-            el.addEventListener('click', () => {
-                opt?.action?.();
-                this.closeMcpPopup();
-            });
-
-            el.addEventListener('mouseenter', () => {
-                el.classList.add('autocomplete--option-selected');
-            });
-            el.addEventListener('mouseleave', () => {
-                el.classList.remove('autocomplete--option-selected');
-            });
-        });
-
-        // Close on click outside
-        setTimeout(() => {
-            document.addEventListener('click', this._mcpPopupCloseHandler = (e) => {
-                if (!popup.contains(e.target)) {
-                    this.closeMcpPopup();
-                }
-            });
-        }, 100);
-
-        document.body.appendChild(popup);
-        return popup;
-    }
-
-    /**
-     * Close MCP popup
-     */
-    closeMcpPopup() {
-        if (this.mcpPopup) {
-            this.mcpPopup.remove();
-            this.mcpPopup = null;
-        }
-        if (this._mcpPopupCloseHandler) {
-            document.removeEventListener('click', this._mcpPopupCloseHandler);
-            this._mcpPopupCloseHandler = null;
-        }
-    }
-
-    /**
-     * Show MCP activity log popup
-     */
-    showMcpActivityPopup() {
-        // Remove existing
-        if (this.mcpActivityPopup) {
-            this.mcpActivityPopup.remove();
-            this.mcpActivityPopup = null;
-            return;
-        }
-
-        const popup = document.createElement('div');
-        popup.className = 'synchub-activity-popup';
-        popup.style.cssText = `
-            position: fixed;
-            right: 20px;
-            bottom: 50px;
-            width: 400px;
-            max-height: 350px;
-            z-index: 9999;
-            background: var(--background-primary);
-            border: 1px solid var(--divider-color);
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            font-size: 12px;
-            overflow: hidden;
-        `;
-
-        popup.innerHTML = `
-            <div style="padding: 8px 12px; border-bottom: 1px solid var(--divider-color); display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: 600;"><span class="ti ti-activity" style="margin-right: 6px;"></span>MCP Activity</span>
-                <span class="ti ti-x synchub-activity-close" style="cursor: pointer; opacity: 0.6;"></span>
-            </div>
-            <div class="synchub-activity-log" style="max-height: 300px; overflow-y: auto; padding: 4px 0;"></div>
-        `;
-
-        popup.querySelector('.synchub-activity-close').addEventListener('click', () => {
-            this.mcpActivityPopup.remove();
-            this.mcpActivityPopup = null;
-        });
-
-        document.body.appendChild(popup);
-        this.mcpActivityPopup = popup;
-        this.updateMcpActivityPopup();
-    }
-
-    /**
-     * Update MCP activity popup content
-     */
-    updateMcpActivityPopup() {
-        if (!this.mcpActivityPopup) return;
-
-        const logEl = this.mcpActivityPopup.querySelector('.synchub-activity-log');
-        if (!logEl) return;
-
-        if (this.mcpActivityLog.length === 0) {
-            logEl.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No activity yet</div>';
-            return;
-        }
-
-        let html = '';
-        for (const entry of this.mcpActivityLog.slice(0, 20)) {
-            const statusIcon = entry.status === 'success' ? 'ti-check'
-                : entry.status === 'error' ? 'ti-x'
-                : 'ti-loader';
-            const statusColor = entry.status === 'success' ? 'var(--text-status-online)'
-                : entry.status === 'error' ? 'var(--text-status-offline)'
-                : 'var(--text-muted)';
-            const statusAnim = entry.status === 'pending' ? 'animation: spin 1s linear infinite;' : '';
-
-            // Truncate args for display
-            const argsStr = JSON.stringify(entry.args);
-            const argsShort = argsStr.length > 40 ? argsStr.slice(0, 40) + '...' : argsStr;
-
-            const timeStr = entry.timestamp.toLocaleTimeString();
-            const durationStr = entry.duration ? `${entry.duration}ms` : '';
-
-            html += `
-                <div style="padding: 6px 12px; border-bottom: 1px solid var(--divider-color); display: flex; align-items: center; gap: 8px;" title="${this.escapeHtml(argsStr)}${entry.error ? '\n\nError: ' + this.escapeHtml(entry.error) : ''}">
-                    <span class="ti ${statusIcon}" style="color: ${statusColor}; ${statusAnim} flex-shrink: 0;"></span>
-                    <span style="flex: 1; overflow: hidden;">
-                        <span style="font-weight: 500;">${entry.tool}</span>
-                        <span style="color: var(--text-muted); margin-left: 4px;">${this.escapeHtml(argsShort)}</span>
-                    </span>
-                    <span style="color: var(--text-muted); font-size: 10px; flex-shrink: 0;">${durationStr}</span>
-                </div>
-            `;
-        }
-
-        logEl.innerHTML = html;
-    }
-
-    /**
-     * Escape HTML for safe display
-     */
-    escapeHtml(str) {
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        if (seconds < 60) return 'just now';
+        if (minutes < 60) return `${minutes}m ago`;
+        if (hours < 24) return `${hours}h ago`;
+        return `${days}d ago`;
     }
 
     /**
@@ -2404,45 +2017,77 @@ class Plugin extends CollectionPlugin {
             this.statusBarItem.setTooltip(`Sync Hub - Last sync: ${relativeTime} (${enabledRecords.length} active)`);
 
         } catch (e) {
-            // Silently ignore errors during status update
+            console.error('[SyncHub] Error updating status bar:', e);
         }
     }
 
     /**
-     * Get friendly plugin name from ID
+     * Build HTML label for SyncHub status bar (ti-server icon)
+     */
+    buildStatusLabel(state, extra = '') {
+        const baseStyle = 'font-size: 16px;';
+        let style = '';
+        let iconStyle = baseStyle;
+
+        switch (state) {
+            case 'syncing':
+                // Glow animation for syncing
+                style = `<style>
+                    @keyframes syncGlow {
+                        0%, 100% { filter: drop-shadow(0 0 2px #60a5fa); opacity: 1; }
+                        50% { filter: drop-shadow(0 0 6px #60a5fa); opacity: 0.8; }
+                    }
+                </style>`;
+                iconStyle = `${baseStyle} color: #60a5fa; animation: syncGlow 1s ease-in-out infinite;`;
+                break;
+            case 'error':
+                iconStyle = `${baseStyle} color: #f87171;`;
+                break;
+            case 'idle':
+                iconStyle = `${baseStyle} color: #4ade80;`;
+                break;
+            case 'disabled':
+                iconStyle = `${baseStyle} opacity: 0.4;`;
+                break;
+            default:
+                iconStyle = `${baseStyle} opacity: 0.4;`;
+        }
+
+        return `${style}<span class="ti ti-server" style="${iconStyle}"></span>`;
+    }
+
+    /**
+     * Get list of registered sync plugins (for Desktop Bridge API)
+     */
+    _getPluginList() {
+        const plugins = [];
+        for (const [pluginId, _] of this.syncFunctions) {
+            plugins.push({
+                name: pluginId,
+                enabled: true // We only track registered (enabled) plugins
+            });
+        }
+        return plugins;
+    }
+
+    /**
+     * Get human-readable name for a plugin ID
      */
     getPluginName(pluginId) {
         const names = {
             'github-sync': 'GitHub',
             'readwise-sync': 'Readwise',
             'google-calendar-sync': 'Calendar',
+            'google-contacts-sync': 'Contacts',
+            'telegram-sync': 'Telegram',
         };
         return names[pluginId] || pluginId;
     }
 
     /**
-     * Format relative time (e.g., "5m ago", "2h ago")
-     */
-    formatRelativeTime(date) {
-        const now = new Date();
-        const diff = now - date;
-        const seconds = Math.floor(diff / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const hours = Math.floor(minutes / 60);
-        const days = Math.floor(hours / 24);
-
-        if (seconds < 60) return 'just now';
-        if (minutes < 60) return `${minutes}m ago`;
-        if (hours < 24) return `${hours}h ago`;
-        return `${days}d ago`;
-    }
-
-    /**
-     * Handle status bar click - open Sync Hub collection
+     * Handle status bar click
      */
     onStatusBarClick() {
-        // TODO: Open Sync Hub collection view
-        // For now, trigger sync all
         this.syncAll();
     }
 
@@ -2489,7 +2134,7 @@ class Plugin extends CollectionPlugin {
     }
 
     /**
-     * Reset all stuck syncs to idle
+     * Reset any stuck syncs
      */
     async resetStuckSyncs() {
         try {
@@ -2523,215 +2168,5 @@ class Plugin extends CollectionPlugin {
                 autoDestroyTime: 3000,
             });
         }
-    }
-
-    // =========================================================================
-    // Desktop Bridge - WebSocket connection to Thymer Desktop
-    // =========================================================================
-
-    /**
-     * Connect to Thymer Desktop app for MCP bridge and CLI access.
-     * Desktop exposes a WebSocket server that we connect to.
-     */
-    connectToDesktop() {
-        // Don't connect in non-browser environments
-        if (typeof WebSocket === 'undefined') return;
-
-        // Don't connect if already connected or connecting
-        if (this.desktopWs && this.desktopWs.readyState <= WebSocket.OPEN) {
-            console.debug('[SyncHub] Already connected to Desktop, skipping');
-            return;
-        }
-
-        const wsUrl = 'ws://127.0.0.1:9848';
-        this.desktopReconnectAttempts = 0;
-        this.desktopMaxReconnectAttempts = 5;
-        this.desktopIntentionalClose = false;
-
-        this._connectDesktopWebSocket(wsUrl);
-    }
-
-    _connectDesktopWebSocket(wsUrl) {
-        // Check again in case of race
-        if (this.desktopWs && this.desktopWs.readyState <= WebSocket.OPEN) {
-            return;
-        }
-
-        try {
-            this.desktopWs = new WebSocket(wsUrl);
-
-            this.desktopWs.onopen = () => {
-                console.log('[SyncHub] Connected to Thymer Desktop');
-                this.desktopReconnectAttempts = 0;
-                this.mcpConnectedAt = new Date();
-
-                // Register ourselves
-                this.desktopWs.send(JSON.stringify({
-                    type: 'register',
-                    version: '1.0.0'
-                }));
-
-                // Push current tools and plugins
-                this._pushToolsToDesktop();
-                this._pushPluginsToDesktop();
-
-                // Update MCP status bar
-                this.updateMcpStatusBar();
-            };
-
-            this.desktopWs.onmessage = (event) => {
-                this._handleDesktopMessage(event.data);
-            };
-
-            this.desktopWs.onclose = (event) => {
-                console.log('[SyncHub] Disconnected from Thymer Desktop');
-                const wasIntentional = this.desktopIntentionalClose;
-                this.desktopWs = null;
-                this.mcpConnectedAt = null;
-
-                // Update MCP status bar
-                this.updateMcpStatusBar();
-
-                // Don't reconnect if intentionally closed or if code 1000 (normal) / 1001 (going away)
-                // Code 1008 = policy violation (server closed us for new client)
-                if (wasIntentional || event.code === 1008) {
-                    console.debug('[SyncHub] Not reconnecting (intentional or replaced by new client)');
-                    return;
-                }
-
-                // Reconnect with backoff
-                if (this.desktopReconnectAttempts < this.desktopMaxReconnectAttempts) {
-                    const delay = Math.min(1000 * Math.pow(2, this.desktopReconnectAttempts), 30000);
-                    this.desktopReconnectAttempts++;
-                    console.debug(`[SyncHub] Reconnecting in ${delay}ms (attempt ${this.desktopReconnectAttempts})`);
-                    setTimeout(() => this._connectDesktopWebSocket(wsUrl), delay);
-                }
-            };
-
-            this.desktopWs.onerror = (err) => {
-                // Silently handle - desktop app might not be running
-                console.debug('[SyncHub] Desktop connection error (app may not be running)');
-            };
-
-        } catch (e) {
-            console.debug('[SyncHub] Could not connect to Desktop:', e.message);
-        }
-    }
-
-    disconnectFromDesktop() {
-        if (this.desktopWs) {
-            this.desktopIntentionalClose = true;
-            this.desktopWs.close(1000, 'Plugin unloading');
-            this.desktopWs = null;
-        }
-    }
-
-    _handleDesktopMessage(data) {
-        try {
-            const msg = JSON.parse(data);
-
-            // Handle requests from Desktop
-            switch (msg.type) {
-                case 'get_tools':
-                    this._sendDesktopResponse(msg.id, this.getRegisteredTools());
-                    break;
-
-                case 'get_plugins':
-                    this._sendDesktopResponse(msg.id, this._getPluginList());
-                    break;
-
-                case 'tool_call':
-                    this.flashMcpActivity();
-                    const callStart = Date.now();
-                    const logEntry = {
-                        id: msg.id,
-                        tool: msg.name,
-                        args: msg.args || {},
-                        timestamp: new Date(),
-                        status: 'pending'
-                    };
-                    this.mcpActivityLog.unshift(logEntry);
-                    if (this.mcpActivityLog.length > 50) this.mcpActivityLog.pop();
-                    this.updateMcpActivityPopup();
-
-                    this.executeToolCall(msg.name, msg.args || {})
-                        .then(result => {
-                            logEntry.status = 'success';
-                            logEntry.duration = Date.now() - callStart;
-                            this.updateMcpActivityPopup();
-                            this._sendDesktopResponse(msg.id, result);
-                        })
-                        .catch(err => {
-                            logEntry.status = 'error';
-                            logEntry.error = err.message;
-                            logEntry.duration = Date.now() - callStart;
-                            this.updateMcpActivityPopup();
-                            this._sendDesktopError(msg.id, err.message);
-                        });
-                    break;
-
-                case 'sync':
-                    this.requestSync(msg.plugin)
-                        .then(() => this._sendDesktopResponse(msg.id, { success: true }))
-                        .catch(err => this._sendDesktopError(msg.id, err.message));
-                    break;
-
-                case 'sync_all':
-                    this.syncAll()
-                        .then(() => this._sendDesktopResponse(msg.id, { success: true }))
-                        .catch(err => this._sendDesktopError(msg.id, err.message));
-                    break;
-
-                default:
-                    console.debug('[SyncHub] Unknown desktop message type:', msg.type);
-            }
-        } catch (e) {
-            console.error('[SyncHub] Failed to handle desktop message:', e);
-        }
-    }
-
-    _sendDesktopResponse(id, result) {
-        if (!this.desktopWs || this.desktopWs.readyState !== WebSocket.OPEN) return;
-        this.desktopWs.send(JSON.stringify({ id, result }));
-    }
-
-    _sendDesktopError(id, error) {
-        if (!this.desktopWs || this.desktopWs.readyState !== WebSocket.OPEN) return;
-        this.desktopWs.send(JSON.stringify({ id, error }));
-    }
-
-    _pushToolsToDesktop() {
-        if (!this.desktopWs || this.desktopWs.readyState !== WebSocket.OPEN) return;
-        this.desktopWs.send(JSON.stringify({
-            type: 'tools',
-            tools: this.getRegisteredTools()
-        }));
-    }
-
-    _pushPluginsToDesktop() {
-        if (!this.desktopWs || this.desktopWs.readyState !== WebSocket.OPEN) return;
-        this.desktopWs.send(JSON.stringify({
-            type: 'plugins',
-            plugins: this._getPluginList()
-        }));
-    }
-
-    _getPluginList() {
-        const plugins = [];
-        for (const [pluginId, _] of this.syncFunctions) {
-            plugins.push({
-                name: pluginId,
-                enabled: true // We only track registered (enabled) plugins
-            });
-        }
-        return plugins;
-    }
-
-    /**
-     * Check if connected to Thymer Desktop
-     * @returns {boolean}
-     */
-    isDesktopConnected() {
-        return this.desktopWs && this.desktopWs.readyState === WebSocket.OPEN;
     }
 }

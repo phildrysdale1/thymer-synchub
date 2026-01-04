@@ -1,0 +1,5 @@
+{
+  "name": "Desktop Bridge",
+  "icon": "ti-crane",
+  "description": "Connects Thymer to thymer-bar for MCP and CLI integration"
+}
