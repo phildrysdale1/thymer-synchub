@@ -119,9 +119,13 @@
             "icon": "ti-checkbox",
             "id": "prep",
             "label": "Prep Done",
-            "type": "checkbox",
+            "type": "choice",
             "read_only": false,
-            "active": true
+            "active": true,
+            "choices": [
+                {"id": "yes", "label": "Yes", "color": "2", "active": true},
+                {"id": "no", "label": "No", "color": "4", "active": true}
+            ]
         },
         {
             "icon": "ti-bolt",
@@ -153,17 +157,25 @@
             "icon": "ti-arrow-forward",
             "id": "followup",
             "label": "Needs Follow-up",
-            "type": "checkbox",
+            "type": "choice",
             "read_only": false,
-            "active": true
+            "active": true,
+            "choices": [
+                {"id": "yes", "label": "Yes", "color": "5", "active": true},
+                {"id": "no", "label": "No", "color": "4", "active": true}
+            ]
         },
         {
             "icon": "ti-calendar-check",
             "id": "all_day",
             "label": "All Day",
-            "type": "checkbox",
+            "type": "choice",
             "read_only": true,
-            "active": false
+            "active": false,
+            "choices": [
+                {"id": "yes", "label": "Yes", "color": "2", "active": true},
+                {"id": "no", "label": "No", "color": "4", "active": true}
+            ]
         },
         {
             "icon": "ti-refresh",

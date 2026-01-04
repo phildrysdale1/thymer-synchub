@@ -387,7 +387,7 @@ class Plugin extends AppPlugin {
                 attendees: attendees,
                 meet_link: meetLink,
                 url: event.htmlLink || '',
-                all_day: isAllDay,
+                all_day: isAllDay ? 'Yes' : 'No',
                 description: event.description || '',
                 // For change detection
                 updated_at: event.updated,

@@ -226,7 +226,7 @@ class Plugin extends CollectionPlugin {
                 calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
                 location: r.text('location'),
                 meet_link: r.text('meet_link'),
-                prep: r.prop('prep')?.checked()
+                prep: r.prop('prep')?.choice() === 'yes'
             }))
         };
     }
@@ -269,7 +269,7 @@ class Plugin extends CollectionPlugin {
                 time: r.prop('time_period')?.date()?.toISOString(),
                 calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
                 location: r.text('location'),
-                prep: r.prop('prep')?.checked()
+                prep: r.prop('prep')?.choice() === 'yes'
             }))
         };
     }
@@ -280,7 +280,7 @@ class Plugin extends CollectionPlugin {
 
         const records = await collection.getAllRecords();
 
-        let results = records.filter(r => r.prop('followup')?.checked());
+        let results = records.filter(r => r.prop('followup')?.choice() === 'yes');
 
         // Sort by time descending (most recent first)
         results.sort((a, b) => {
