@@ -69,10 +69,110 @@ class Plugin extends CollectionPlugin {
         return choiceId === targetId || choiceId.toLowerCase() === targetId.toLowerCase();
     }
 
+    /**
+     * Format a Thymer DateTime value into a rich, timezone-aware structure.
+     * Input: dt.value() = {d: 'YYYYMMDD', t?: {t: 'HHMM', tz: number}, r?: {...}}
+     */
+    formatDateTime(record) {
+        const dt = record.prop('time_period')?.datetime();
+        if (!dt) return null;
+
+        const val = dt.value();
+        if (!val?.d) return null;
+
+        // Parse date YYYYMMDD
+        const year = val.d.slice(0, 4);
+        const month = val.d.slice(4, 6);
+        const day = val.d.slice(6, 8);
+        const date = `${year}-${month}-${day}`;
+
+        const result = {
+            date,
+            all_day: !val.t,
+        };
+
+        // Add time if present
+        if (val.t?.t) {
+            result.time = val.t.t.slice(0, 2) + ':' + val.t.t.slice(2, 4);
+        }
+
+        // Add range end if present
+        if (val.r?.d) {
+            const ry = val.r.d.slice(0, 4);
+            const rm = val.r.d.slice(4, 6);
+            const rd = val.r.d.slice(6, 8);
+            result.end_date = `${ry}-${rm}-${rd}`;
+            if (val.r.t?.t) {
+                result.end_time = val.r.t.t.slice(0, 2) + ':' + val.r.t.t.slice(2, 4);
+            }
+        }
+
+        // Add local date from JS Date for convenience
+        const jsDate = dt.toDate();
+        if (jsDate) {
+            result.local = jsDate.toLocaleString();
+        }
+
+        return result;
+    }
+
+    /**
+     * Get today's date in local timezone as YYYY-MM-DD
+     */
+    getLocalDateString(date = new Date()) {
+        return date.getFullYear() + '-' +
+            String(date.getMonth() + 1).padStart(2, '0') + '-' +
+            String(date.getDate()).padStart(2, '0');
+    }
+
+    /**
+     * Check if a record's time_period is on a given local date (YYYY-MM-DD)
+     */
+    isOnDate(record, targetDate) {
+        const dt = record.prop('time_period')?.datetime();
+        if (!dt) return false;
+        const val = dt.value();
+        if (!val?.d) return false;
+
+        // Convert YYYYMMDD to YYYY-MM-DD
+        const eventDate = val.d.slice(0, 4) + '-' + val.d.slice(4, 6) + '-' + val.d.slice(6, 8);
+
+        // For ranges, check if targetDate falls within the range
+        if (val.r?.d) {
+            const endDate = val.r.d.slice(0, 4) + '-' + val.r.d.slice(4, 6) + '-' + val.r.d.slice(6, 8);
+            return targetDate >= eventDate && targetDate <= endDate;
+        }
+
+        return eventDate === targetDate;
+    }
+
     async onLoad() {
         // Wait for SyncHub to register tools
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
         if (window.syncHub) this.registerTools();
+
+        // Debug helper
+        window.calendarDebug = async (search = 'birthday') => {
+            const collection = await this.getCollection(this.data);
+            const records = await collection.getAllRecords();
+            const r = records.find(r => r.getName().toLowerCase().includes(search.toLowerCase()));
+            if (!r) return console.log('No record found matching:', search);
+
+            const prop = r.prop('time_period');
+            const dt = prop?.datetime();
+            console.log('Record:', r.getName());
+            console.log('prop:', prop);
+            console.log('.date():', prop?.date());
+            console.log('.datetime():', dt);
+            console.log('.text():', prop?.text());
+            if (dt) {
+                console.log('dt keys:', Object.keys(dt));
+                console.log('dt proto:', Object.getOwnPropertyNames(Object.getPrototypeOf(dt)));
+                console.log('dt.toDate():', dt.toDate?.());
+                console.log('dt.value():', dt.value?.());
+            }
+            return { prop, dt, record: r };
+        };
     }
 
     registerTools() {
@@ -183,7 +283,7 @@ class Plugin extends CollectionPlugin {
         return results.map(r => ({
             guid: r.guid,
             title: r.getName(),
-            time: r.prop('time_period')?.date()?.toISOString(),
+            when: this.formatDateTime(r),
             calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
             status: this.idToLabel(r.prop('status')?.choice(), 'status'),
             location: r.text('location')
@@ -195,34 +295,34 @@ class Plugin extends CollectionPlugin {
         if (!collection) return { error: 'Calendar collection not found' };
 
         const records = await collection.getAllRecords();
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
+        const todayStr = this.getLocalDateString();
 
-        let results = records.filter(r => {
-            const eventDate = r.prop('time_period')?.date();
-            return eventDate && eventDate >= today && eventDate < tomorrow;
-        });
+        // Filter using Thymer's native date format (no timezone conversion issues)
+        let results = records.filter(r => this.isOnDate(r, todayStr));
 
         if (args.calendar) {
             results = results.filter(r => this.choiceMatches(r, 'calendar', args.calendar));
         }
 
-        // Sort by time
+        // Sort by time (all-day events first, then by time)
         results.sort((a, b) => {
-            const dateA = a.prop('time_period')?.date() || new Date(0);
-            const dateB = b.prop('time_period')?.date() || new Date(0);
-            return dateA - dateB;
+            const dtA = a.prop('time_period')?.datetime()?.value();
+            const dtB = b.prop('time_period')?.datetime()?.value();
+            // All-day events (no time) come first
+            if (!dtA?.t && dtB?.t) return -1;
+            if (dtA?.t && !dtB?.t) return 1;
+            // Both have time: compare time strings
+            if (dtA?.t?.t && dtB?.t?.t) return dtA.t.t.localeCompare(dtB.t.t);
+            return 0;
         });
 
         return {
-            date: today.toISOString().split('T')[0],
+            date: todayStr,
             count: results.length,
             events: results.map(r => ({
                 guid: r.guid,
                 title: r.getName(),
-                time: r.prop('time_period')?.date()?.toISOString(),
+                when: this.formatDateTime(r),
                 calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
                 location: r.text('location'),
                 meet_link: r.text('meet_link'),
@@ -236,37 +336,51 @@ class Plugin extends CollectionPlugin {
         if (!collection) return { error: 'Calendar collection not found' };
 
         const records = await collection.getAllRecords();
-        const now = new Date();
         const days = args.days || 7;
-        const endDate = new Date(now);
-        endDate.setDate(endDate.getDate() + days);
 
+        // Calculate date range in local timezone
+        const todayStr = this.getLocalDateString();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + days);
+        const endStr = this.getLocalDateString(endDate);
+
+        // Filter events within the date range
         let results = records.filter(r => {
-            const eventDate = r.prop('time_period')?.date();
-            return eventDate && eventDate >= now && eventDate <= endDate;
+            const dt = r.prop('time_period')?.datetime();
+            if (!dt) return false;
+            const val = dt.value();
+            if (!val?.d) return false;
+            const eventDate = val.d.slice(0, 4) + '-' + val.d.slice(4, 6) + '-' + val.d.slice(6, 8);
+            return eventDate >= todayStr && eventDate <= endStr;
         });
 
         if (args.calendar) {
             results = results.filter(r => this.choiceMatches(r, 'calendar', args.calendar));
         }
 
-        // Sort by time
+        // Sort by date then time
         results.sort((a, b) => {
-            const dateA = a.prop('time_period')?.date() || new Date(0);
-            const dateB = b.prop('time_period')?.date() || new Date(0);
-            return dateA - dateB;
+            const dtA = a.prop('time_period')?.datetime()?.value();
+            const dtB = b.prop('time_period')?.datetime()?.value();
+            // Compare dates first
+            if (dtA?.d !== dtB?.d) return (dtA?.d || '').localeCompare(dtB?.d || '');
+            // All-day events first within same day
+            if (!dtA?.t && dtB?.t) return -1;
+            if (dtA?.t && !dtB?.t) return 1;
+            // Compare times
+            return (dtA?.t?.t || '').localeCompare(dtB?.t?.t || '');
         });
 
         const limit = args.limit || 20;
         results = results.slice(0, limit);
 
         return {
-            period: `Next ${days} days`,
+            period: `${todayStr} to ${endStr}`,
             count: results.length,
             events: results.map(r => ({
                 guid: r.guid,
                 title: r.getName(),
-                time: r.prop('time_period')?.date()?.toISOString(),
+                when: this.formatDateTime(r),
                 calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
                 location: r.text('location'),
                 prep: r.prop('prep')?.choice() === 'yes'
@@ -282,11 +396,11 @@ class Plugin extends CollectionPlugin {
 
         let results = records.filter(r => r.prop('followup')?.choice() === 'yes');
 
-        // Sort by time descending (most recent first)
+        // Sort by date descending (most recent first)
         results.sort((a, b) => {
-            const dateA = a.prop('time_period')?.date() || new Date(0);
-            const dateB = b.prop('time_period')?.date() || new Date(0);
-            return dateB - dateA;
+            const dtA = a.prop('time_period')?.datetime()?.value();
+            const dtB = b.prop('time_period')?.datetime()?.value();
+            return (dtB?.d || '').localeCompare(dtA?.d || '');
         });
 
         const limit = args.limit || 10;
@@ -295,7 +409,7 @@ class Plugin extends CollectionPlugin {
         return results.map(r => ({
             guid: r.guid,
             title: r.getName(),
-            time: r.prop('time_period')?.date()?.toISOString(),
+            when: this.formatDateTime(r),
             calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
             outcome: this.idToLabel(r.prop('outcome')?.choice(), 'outcome')
         }));
@@ -323,7 +437,7 @@ class Plugin extends CollectionPlugin {
         return results.map(r => ({
             guid: r.guid,
             title: r.getName(),
-            time: r.prop('time_period')?.date()?.toISOString(),
+            when: this.formatDateTime(r),
             calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
             location: r.text('location')
         }));
