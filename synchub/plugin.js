@@ -10,6 +10,8 @@
  * - State stored in Thymer, not IndexedDB
  */
 
+const VERSION = 'v1.0.0';
+
 // Markdown config
 const BLANK_LINE_BEFORE_HEADINGS = true;
 
@@ -233,13 +235,19 @@ class Plugin extends CollectionPlugin {
             return;
         }
 
+        // Track registered plugins with versions
+        this.registeredPlugins = new Map();
+
         // Expose API for other collections to register
         window.syncHub = {
+            version: VERSION,
+            checkVersion: (requiredVersion) => this.checkVersion(requiredVersion),
             register: (config) => this.registerPlugin(config),
             unregister: (pluginId) => this.unregisterPlugin(pluginId),
             requestSync: (pluginId, options) => this.requestSync(pluginId, options),
             registerConnect: (pluginId, connectFn) => this.registerConnect(pluginId, connectFn),
             getStatus: (pluginId) => this.getPluginStatus(pluginId),
+            getRegisteredPlugins: () => this.getRegisteredPluginsList(),
             // Markdown utilities
             insertMarkdown: (markdown, record, afterItem) => this.insertMarkdown(markdown, record, afterItem),
             replaceContents: (markdown, record) => this.replaceContents(markdown, record),
@@ -305,6 +313,13 @@ class Plugin extends CollectionPlugin {
             onSelected: () => this.resetStuckSyncs()
         });
 
+        // Command palette: Health Check
+        this.healthCheckCommand = this.ui.addCommandPaletteCommand({
+            label: 'Sync Hub: Health Check',
+            icon: 'stethoscope',
+            onSelected: () => this.showHealthCheck()
+        });
+
         // Register Dashboard view
         this.registerDashboardView();
 
@@ -327,6 +342,9 @@ class Plugin extends CollectionPlugin {
         }
         if (this.resetCommand) {
             this.resetCommand.remove();
+        }
+        if (this.healthCheckCommand) {
+            this.healthCheckCommand.remove();
         }
         if (this.statusBarItem) {
             this.statusBarItem.remove();
@@ -606,9 +624,10 @@ class Plugin extends CollectionPlugin {
      * @param {string} config.icon - Icon class (e.g., 'ti-brand-github')
      * @param {Function} config.sync - Async function to perform sync
      * @param {string} config.defaultInterval - Default interval (e.g., '5m', '1h')
+     * @param {string} config.version - Plugin version (e.g., 'v1.0.0')
      */
     async registerPlugin(config) {
-        const { id, name, icon, sync, defaultInterval = '5m' } = config;
+        const { id, name, icon, sync, defaultInterval = '5m', version } = config;
 
         if (!id || !sync) {
             this.log(`Registration failed: missing id or sync function`, 'error');
@@ -617,7 +636,20 @@ class Plugin extends CollectionPlugin {
 
         // Store the sync function
         this.syncFunctions.set(id, sync);
-        console.log(`[SyncHub] Registered plugin: ${id} (${this.syncFunctions.size} total)`);
+
+        // Track plugin version
+        this.registeredPlugins.set(id, {
+            name: name || id,
+            version: version || 'unknown',
+            registeredAt: new Date()
+        });
+
+        // Version mismatch warning
+        if (version && version !== VERSION) {
+            console.warn(`[SyncHub] ⚠️ Version mismatch: ${name || id} is ${version}, but SyncHub is ${VERSION}`);
+        }
+
+        console.log(`[SyncHub] Registered plugin: ${id} ${version || ''} (${this.syncFunctions.size} total)`);
 
         // Find or create the plugin record
         let record = await this.findPluginRecord(id);
@@ -636,6 +668,33 @@ class Plugin extends CollectionPlugin {
 
     async unregisterPlugin(pluginId) {
         this.syncFunctions.delete(pluginId);
+        this.registeredPlugins.delete(pluginId);
+    }
+
+    /**
+     * Check if a version meets requirements (for plugins to check SyncHub version)
+     */
+    checkVersion(requiredVersion) {
+        if (!requiredVersion) return true;
+        // Simple string comparison works for semver format vX.Y.Z
+        return VERSION >= requiredVersion;
+    }
+
+    /**
+     * Get list of registered plugins with their versions
+     */
+    getRegisteredPluginsList() {
+        const plugins = [];
+        for (const [id, info] of this.registeredPlugins) {
+            plugins.push({
+                id,
+                name: info.name,
+                version: info.version,
+                versionMatch: info.version === VERSION || info.version === 'unknown',
+                syncHubVersion: VERSION
+            });
+        }
+        return plugins;
     }
 
     // =========================================================================
@@ -2168,5 +2227,66 @@ class Plugin extends CollectionPlugin {
                 autoDestroyTime: 3000,
             });
         }
+    }
+
+    /**
+     * Show health check popup with all registered plugins and their versions
+     */
+    showHealthCheck() {
+        const plugins = this.getRegisteredPluginsList();
+        const mismatches = plugins.filter(p => !p.versionMatch);
+
+        let content = `<div style="padding: 16px; font-family: var(--font-family);">`;
+        content += `<div style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">`;
+        content += `<span class="ti ti-stethoscope" style="margin-right: 8px;"></span>`;
+        content += `Sync Hub Health Check</div>`;
+
+        content += `<div style="background: var(--bg-hover); padding: 12px; border-radius: 8px; margin-bottom: 16px;">`;
+        content += `<div style="font-size: 14px; color: var(--text-muted);">SyncHub Version</div>`;
+        content += `<div style="font-size: 24px; font-weight: 600;">${VERSION}</div>`;
+        content += `</div>`;
+
+        if (plugins.length === 0) {
+            content += `<div style="color: var(--text-muted); padding: 20px; text-align: center;">No plugins registered yet</div>`;
+        } else {
+            content += `<div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">Registered Plugins</div>`;
+
+            for (const plugin of plugins) {
+                const icon = plugin.versionMatch
+                    ? `<span class="ti ti-check" style="color: var(--enum-green-fg);"></span>`
+                    : `<span class="ti ti-alert-triangle" style="color: var(--enum-orange-fg);"></span>`;
+
+                const versionStyle = plugin.versionMatch
+                    ? 'color: var(--text-muted);'
+                    : 'color: var(--enum-orange-fg); font-weight: 600;';
+
+                content += `<div style="display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--bg-hover);">`;
+                content += `<span style="margin-right: 8px;">${icon}</span>`;
+                content += `<span style="flex: 1;">${plugin.name}</span>`;
+                content += `<span style="${versionStyle}">${plugin.version}</span>`;
+                content += `</div>`;
+            }
+        }
+
+        if (mismatches.length > 0) {
+            content += `<div style="margin-top: 16px; padding: 12px; background: var(--enum-orange-bg); border-radius: 8px; color: var(--enum-orange-fg);">`;
+            content += `<span class="ti ti-alert-triangle" style="margin-right: 8px;"></span>`;
+            content += `${mismatches.length} plugin(s) have version mismatch. Update all plugins to ${VERSION}.`;
+            content += `</div>`;
+        } else if (plugins.length > 0) {
+            content += `<div style="margin-top: 16px; padding: 12px; background: var(--enum-green-bg); border-radius: 8px; color: var(--enum-green-fg);">`;
+            content += `<span class="ti ti-check" style="margin-right: 8px;"></span>`;
+            content += `All plugins are up to date!`;
+            content += `</div>`;
+        }
+
+        content += `</div>`;
+
+        this.ui.addPopup({
+            content,
+            dismissible: true,
+            closeIcon: true,
+            width: 400,
+        });
     }
 }

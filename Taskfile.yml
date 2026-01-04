@@ -174,3 +174,137 @@ tasks:
             echo "✗ $name/plugin.js missing"
           fi
         done
+
+  # =============================================================================
+  # Release Management
+  # =============================================================================
+
+  release:
+    desc: Create a release (usage - task release -- v1.2.0)
+    silent: true
+    cmds:
+      - |
+        VERSION="{{.CLI_ARGS}}"
+        if [ -z "$VERSION" ]; then
+          echo "Usage: task release -- v1.2.0"
+          exit 1
+        fi
+
+        # Validate version format
+        if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "Error: Version must be in format v1.2.3"
+          exit 1
+        fi
+
+        echo "🚀 Creating release $VERSION"
+        echo ""
+
+        # 1. Update VERSION file
+        echo "$VERSION" > VERSION
+        echo "✓ Updated VERSION file"
+
+        # 2. Update version in all plugin .js files
+        echo "✓ Updating version in plugin files..."
+
+        # Find all plugin.js files and add/update version constant
+        for f in synchub/plugin.js \
+                 agenthub/plugin.js \
+                 habithub/plugin.js \
+                 {{.COLLECTIONS_DIR}}/*/plugin.js \
+                 {{.PLUGINS_DIR}}/*/plugin.js; do
+          if [ -f "$f" ] && ! echo "$f" | grep -q "_template"; then
+            # Check if VERSION constant exists, update or add it
+            if grep -q "^const VERSION = " "$f"; then
+              sed -i "s/^const VERSION = .*/const VERSION = '$VERSION';/" "$f"
+            else
+              # Add after 'use strict' or at top
+              if grep -q "'use strict'" "$f"; then
+                sed -i "/'use strict'/a const VERSION = '$VERSION';" "$f"
+              else
+                sed -i "1i const VERSION = '$VERSION';" "$f"
+              fi
+            fi
+            echo "  ✓ $f"
+          fi
+        done
+
+        # 3. Git commit
+        echo ""
+        git add -A
+        git commit -m "Release $VERSION"
+        echo "✓ Committed changes"
+
+        # 4. Git tag
+        git tag "$VERSION"
+        echo "✓ Created tag $VERSION"
+
+        # 5. Push
+        git push origin master --tags
+        echo "✓ Pushed to origin"
+
+        # 6. Create zip bundle
+        ZIPNAME="thymer-synchub-$VERSION.zip"
+        echo ""
+        echo "📦 Creating $ZIPNAME..."
+
+        zip -r "$ZIPNAME" \
+          VERSION \
+          synchub/ \
+          agenthub/ \
+          habithub/ \
+          {{.COLLECTIONS_DIR}}/ \
+          {{.PLUGINS_DIR}}/ \
+          -x "*.git*" \
+          -x "*/_template/*" \
+          -x "*/node_modules/*"
+
+        echo "✓ Created $ZIPNAME"
+
+        # 7. Create GitHub release
+        echo ""
+        echo "📢 Creating GitHub release..."
+        gh release create "$VERSION" "$ZIPNAME" \
+          --title "$VERSION" \
+          --generate-notes
+
+        echo ""
+        echo "✅ Release $VERSION complete!"
+        echo "   https://github.com/riclib/thymer-synchub/releases/tag/$VERSION"
+
+        # Cleanup
+        rm "$ZIPNAME"
+
+  release:dry-run:
+    desc: Preview what release would do (usage - task release:dry-run -- v1.2.0)
+    silent: true
+    cmds:
+      - |
+        VERSION="{{.CLI_ARGS}}"
+        if [ -z "$VERSION" ]; then
+          echo "Usage: task release:dry-run -- v1.2.0"
+          exit 1
+        fi
+
+        echo "🔍 Dry run for release $VERSION"
+        echo ""
+        echo "Would update VERSION file to: $VERSION"
+        echo ""
+        echo "Would update version in:"
+        for f in synchub/plugin.js \
+                 agenthub/plugin.js \
+                 habithub/plugin.js \
+                 {{.COLLECTIONS_DIR}}/*/plugin.js \
+                 {{.PLUGINS_DIR}}/*/plugin.js; do
+          if [ -f "$f" ] && ! echo "$f" | grep -q "_template"; then
+            echo "  - $f"
+          fi
+        done
+        echo ""
+        echo "Would create: thymer-synchub-$VERSION.zip"
+        echo "Would commit, tag $VERSION, and push"
+        echo "Would create GitHub release $VERSION"
+
+  version:
+    desc: Show current version
+    cmds:
+      - cat VERSION
