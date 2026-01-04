@@ -144,4 +144,4 @@ This updates all VERSION constants, commits, tags, and creates a GitHub release.
 - Check the [Thymer Plugin SDK](https://github.com/thymerapp/thymer-plugin-sdk) for API docs
 - Read the `docs/` folder for architecture deep-dives
 
-Happy hacking!
+HAPPY THYMERING! 🍀
