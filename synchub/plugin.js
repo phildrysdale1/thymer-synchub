@@ -1038,6 +1038,23 @@ class Plugin extends CollectionPlugin {
         }
     }
 
+    /**
+     * Find a record by GUID across all collections.
+     */
+    async findRecordByGUID(guid) {
+        try {
+            const collections = await this.data.getAllCollections();
+            for (const col of collections) {
+                const records = await col.getAllRecords();
+                const record = records.find(r => r.guid === guid);
+                if (record) return record;
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     async writeChangesToJournal(changes, level) {
         const journalRecord = await this.getTodayJournalRecord();
         if (!journalRecord) return;
@@ -1276,6 +1293,22 @@ class Plugin extends CollectionPlugin {
                     }
                 },
                 _core: true
+            },
+            {
+                type: 'function',
+                function: {
+                    name: 'save_note',
+                    description: 'Create a new note in a collection. Title is extracted from the first # heading. Returns the new note GUID.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            collection: { type: 'string', description: 'Collection name (e.g., "Captures", "Issues")' },
+                            content: { type: 'string', description: 'Markdown content. First # heading becomes the title.' }
+                        },
+                        required: ['collection', 'content']
+                    }
+                },
+                _core: true
             }
         ];
     }
@@ -1297,6 +1330,8 @@ class Plugin extends CollectionPlugin {
                 return this.toolLogToJournal(args);
             case 'get_todays_journal':
                 return this.toolGetTodaysJournal();
+            case 'save_note':
+                return this.toolSaveNote(args);
             default:
                 return null; // Not a core tool
         }
@@ -1318,15 +1353,50 @@ class Plugin extends CollectionPlugin {
         }
     }
 
-    toolListCollections() {
+    async toolListCollections() {
         const collections = {};
-        for (const [name, config] of this.collectionTools) {
+
+        // Get ALL collections from Thymer
+        const allCollections = await this.data.getAllCollections();
+
+        for (const col of allCollections) {
+            const name = col.getName();
+            // Skip internal collections
+            if (name === 'Sync Hub' || name === 'Journal') continue;
+
+            // Check if this collection has registered tools
+            const registered = this.collectionTools.get(name);
+
+            // Try to extract schema from collection properties
+            let schema = {};
+            if (registered?.schema) {
+                schema = registered.schema;
+            } else {
+                // For "dumb" collections, try to get schema from first record
+                try {
+                    const records = await col.getAllRecords();
+                    if (records.length > 0) {
+                        const props = records[0].getAllProperties?.() || [];
+                        for (const prop of props) {
+                            if (prop.name) {
+                                schema[prop.name] = prop.type || 'text';
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore schema extraction errors
+                }
+            }
+
             collections[name] = {
-                description: config.description,
-                schema: config.schema,
-                tools: config.tools.map(t => t.name)
+                guid: col.guid,
+                description: registered?.description || `${name} collection`,
+                schema,
+                tools: registered ? registered.tools.map(t => t.name) : [],
+                has_tools: !!registered
             };
         }
+
         return { collections };
     }
 
@@ -1336,7 +1406,8 @@ class Plugin extends CollectionPlugin {
                 return { error: 'GUID required' };
             }
 
-            const record = await this.data.getRecordByGUID(guid);
+            // Search all collections for the record
+            const record = await this.findRecordByGUID(guid);
             if (!record) {
                 return { error: `Note not found: ${guid}` };
             }
@@ -1379,7 +1450,8 @@ class Plugin extends CollectionPlugin {
                 return { error: 'Content required' };
             }
 
-            const record = await this.data.getRecordByGUID(guid);
+            // Search all collections for the record
+            const record = await this.findRecordByGUID(guid);
             if (!record) {
                 return { error: `Note not found: ${guid}` };
             }
@@ -1444,6 +1516,68 @@ class Plugin extends CollectionPlugin {
                 date: journal.guid.slice(-8), // YYYYMMDD from GUID
                 fields,
                 body: body || '(empty)'
+            };
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    async toolSaveNote({ collection, content }) {
+        try {
+            if (!collection) {
+                return { error: 'Collection name required' };
+            }
+            if (!content) {
+                return { error: 'Content required' };
+            }
+
+            // Find the collection by name
+            const allCollections = await this.data.getAllCollections();
+            const targetCollection = allCollections.find(c =>
+                c.getName().toLowerCase() === collection.toLowerCase()
+            );
+
+            if (!targetCollection) {
+                const available = allCollections.map(c => c.getName()).join(', ');
+                return { error: `Collection "${collection}" not found. Available: ${available}` };
+            }
+
+            // Extract title from first # heading
+            const titleMatch = content.match(/^#\s+(.+)$/m);
+            const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
+
+            // Create the record
+            const guid = targetCollection.createRecord(title);
+            if (!guid) {
+                return { error: 'Failed to create record' };
+            }
+
+            // Wait for record to be available (SDK quirk)
+            await new Promise(r => setTimeout(r, 50));
+
+            // Get the record from the collection (getRecordByGUID not available on this.data)
+            const records = await targetCollection.getAllRecords();
+            const record = records.find(r => r.guid === guid);
+            if (!record) {
+                return { error: 'Record created but not found' };
+            }
+
+            // Remove the title heading from content (it's already the record title)
+            let bodyContent = content;
+            if (titleMatch) {
+                bodyContent = content.replace(/^#\s+.+\n?/, '').trim();
+            }
+
+            // Insert the body content
+            if (bodyContent) {
+                await this.insertMarkdown(bodyContent, record, null);
+            }
+
+            return {
+                success: true,
+                guid,
+                title,
+                collection: targetCollection.getName()
             };
         } catch (e) {
             return { error: e.message };
