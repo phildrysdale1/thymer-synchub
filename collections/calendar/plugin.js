@@ -151,28 +151,293 @@ class Plugin extends CollectionPlugin {
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
         if (window.syncHub) this.registerTools();
 
-        // Debug helper
-        window.calendarDebug = async (search = 'birthday') => {
-            const collection = await this.getCollection(this.data);
-            const records = await collection.getAllRecords();
-            const r = records.find(r => r.getName().toLowerCase().includes(search.toLowerCase()));
-            if (!r) return console.log('No record found matching:', search);
+        // Meeting status bar
+        this.setupMeetingStatusBar();
+    }
 
-            const prop = r.prop('time_period');
-            const dt = prop?.datetime();
-            console.log('Record:', r.getName());
-            console.log('prop:', prop);
-            console.log('.date():', prop?.date());
-            console.log('.datetime():', dt);
-            console.log('.text():', prop?.text());
-            if (dt) {
-                console.log('dt keys:', Object.keys(dt));
-                console.log('dt proto:', Object.getOwnPropertyNames(Object.getPrototypeOf(dt)));
-                console.log('dt.toDate():', dt.toDate?.());
-                console.log('dt.value():', dt.value?.());
+    // =========================================================================
+    // Meeting Status Bar
+    // =========================================================================
+
+    setupMeetingStatusBar() {
+        this.nextMeeting = null;
+        this.meetingPopup = null;
+
+        this.meetingStatus = this.ui.addStatusBarItem({
+            htmlLabel: this.buildMeetingLabel(''),
+            tooltip: 'No upcoming meetings',
+            onClick: () => this.showMeetingPopup()
+        });
+
+        // Update every minute
+        this.updateMeetingStatus();
+        setInterval(() => this.updateMeetingStatus(), 60000);
+    }
+
+    buildMeetingLabel(countdown, urgent = false) {
+        const baseStyle = 'font-size: 16px; vertical-align: middle;';
+        const iconColor = '#2dd4bf'; // Turquoise/teal
+        const textColor = urgent ? iconColor : 'var(--text-muted)';
+        const icon = `<span class="ti ti-calendar-event" style="${baseStyle} color: ${iconColor};"></span>`;
+        if (countdown) {
+            return `${icon}<span style="margin-left: 4px; font-size: 12px; vertical-align: middle; color: ${textColor};">${countdown}</span>`;
+        }
+        return icon;
+    }
+
+    async updateMeetingStatus() {
+        try {
+            const collection = await this.getCollection(this.data);
+            if (!collection) return;
+
+            const records = await collection.getAllRecords();
+            const now = new Date();
+            const todayStr = this.getLocalDateString();
+
+            // Find upcoming or ongoing meetings with meet_link, today only
+            const upcoming = records
+                .filter(r => {
+                    const meetLink = r.text('meet_link');
+                    const location = r.text('location');
+                    // Has a meeting link (meet_link or URL in location)
+                    if (!meetLink && !location?.includes('http')) return false;
+
+                    const dt = r.prop('time_period')?.datetime();
+                    if (!dt) return false;
+                    const val = dt.value();
+                    if (!val?.d || !val?.t) return false; // Skip all-day events
+
+                    // Must be today
+                    const eventDate = val.d.slice(0, 4) + '-' + val.d.slice(4, 6) + '-' + val.d.slice(6, 8);
+                    if (eventDate !== todayStr) return false;
+
+                    const eventTime = dt.toDate();
+
+                    // Include if: hasn't ended yet (check end time if available)
+                    if (val.r?.t?.t) {
+                        // Has end time - check if meeting has ended
+                        const endHour = parseInt(val.r.t.t.slice(0, 2));
+                        const endMin = parseInt(val.r.t.t.slice(2, 4));
+                        const endTime = new Date(eventTime);
+                        endTime.setHours(endHour, endMin, 0, 0);
+                        return now < endTime;
+                    }
+
+                    // No end time - show for 1 hour after start
+                    const oneHourAfter = new Date(eventTime.getTime() + 60 * 60 * 1000);
+                    return now < oneHourAfter;
+                })
+                .sort((a, b) => {
+                    const dtA = a.prop('time_period')?.datetime()?.value();
+                    const dtB = b.prop('time_period')?.datetime()?.value();
+                    return (dtA?.t?.t || '').localeCompare(dtB?.t?.t || '');
+                });
+
+            this.nextMeeting = upcoming[0] || null;
+
+            if (this.nextMeeting) {
+                const dt = this.nextMeeting.prop('time_period')?.datetime();
+                const val = dt?.value();
+                const eventTime = dt?.toDate();
+                const minsUntil = Math.round((eventTime - now) / 60000);
+                const title = this.nextMeeting.getName();
+
+                // Calculate end time for "next Xm" display
+                let minsUntilEnd = null;
+                if (val?.r?.t?.t) {
+                    const endHour = parseInt(val.r.t.t.slice(0, 2));
+                    const endMin = parseInt(val.r.t.t.slice(2, 4));
+                    const endTime = new Date(eventTime);
+                    endTime.setHours(endHour, endMin, 0, 0);
+                    minsUntilEnd = Math.round((endTime - now) / 60000);
+                }
+
+                const countdown = this.formatCountdown(minsUntil, minsUntilEnd);
+                const urgent = minsUntil <= 30; // Highlight when ≤30m away or ongoing
+                this.meetingStatus.setHtmlLabel(this.buildMeetingLabel(countdown, urgent));
+                this.meetingStatus.setTooltip(`${title} at ${this.formatTime(eventTime)}`);
+            } else {
+                this.meetingStatus.setHtmlLabel(this.buildMeetingLabel(''));
+                this.meetingStatus.setTooltip('No upcoming meetings today');
             }
-            return { prop, dt, record: r };
-        };
+        } catch (e) {
+            console.error('[Calendar] Status bar update error:', e);
+        }
+    }
+
+    formatTime(date) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    formatCountdown(minsUntil, minsUntilEnd = null) {
+        if (minsUntil <= 0) {
+            // Meeting ongoing - show time until end
+            if (minsUntilEnd !== null && minsUntilEnd > 0) {
+                return `next ${minsUntilEnd}m`;
+            }
+            return 'now';
+        } else if (minsUntil <= 119) {
+            // Under 2 hours - show minutes
+            return `in ${minsUntil}m`;
+        } else {
+            // 2+ hours - show hours
+            const hours = minsUntil / 60;
+            const rounded = Math.round(hours * 2) / 2; // Round to nearest 0.5
+            if (rounded % 1 === 0) {
+                return `in ${rounded}h`;
+            } else {
+                return `in ${rounded}h`;
+            }
+        }
+    }
+
+    getMeetingLink(record) {
+        const meetLink = record.text('meet_link');
+        if (meetLink) return meetLink;
+        // Fallback: check location for URL
+        const location = record.text('location') || '';
+        const urlMatch = location.match(/https?:\/\/[^\s]+/);
+        return urlMatch ? urlMatch[0] : null;
+    }
+
+    showMeetingPopup() {
+        if (this.meetingPopup) {
+            this.closeMeetingPopup();
+            return;
+        }
+
+        if (!this.nextMeeting) {
+            return;
+        }
+
+        const title = this.nextMeeting.getName();
+        const dt = this.nextMeeting.prop('time_period')?.datetime();
+        const when = this.formatDateTime(this.nextMeeting);
+        const location = this.nextMeeting.text('location') || '';
+        const meetLink = this.getMeetingLink(this.nextMeeting);
+
+        this.meetingPopup = document.createElement('div');
+        this.meetingPopup.className = 'calendar-meeting-popup';
+        this.meetingPopup.innerHTML = `
+            <div class="meeting-popup-header">
+                <span class="meeting-popup-title">${this.escapeHtml(title)}</span>
+                <button class="meeting-popup-close">×</button>
+            </div>
+            <div class="meeting-popup-time">${when?.time || 'All day'} ${when?.end_time ? '- ' + when.end_time : ''}</div>
+            ${location ? `<div class="meeting-popup-location">${this.escapeHtml(location)}</div>` : ''}
+            ${meetLink ? `<button class="meeting-popup-join">Join Meeting</button>` : ''}
+        `;
+
+        // Style the popup
+        Object.assign(this.meetingPopup.style, {
+            position: 'fixed',
+            bottom: '40px',
+            right: '10px',
+            background: 'var(--background-primary, #1e1e1e)',
+            border: '1px solid var(--border-color, #333)',
+            borderRadius: '8px',
+            padding: '12px',
+            minWidth: '250px',
+            maxWidth: '350px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            zIndex: '10000',
+            fontFamily: 'inherit',
+            fontSize: '13px'
+        });
+
+        // Style header
+        const header = this.meetingPopup.querySelector('.meeting-popup-header');
+        Object.assign(header.style, {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: '8px'
+        });
+
+        const titleEl = this.meetingPopup.querySelector('.meeting-popup-title');
+        Object.assign(titleEl.style, {
+            fontWeight: '600',
+            fontSize: '14px',
+            color: 'var(--text-primary, #fff)',
+            flex: '1',
+            marginRight: '8px'
+        });
+
+        const closeBtn = this.meetingPopup.querySelector('.meeting-popup-close');
+        Object.assign(closeBtn.style, {
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-secondary, #888)',
+            cursor: 'pointer',
+            fontSize: '18px',
+            padding: '0',
+            lineHeight: '1'
+        });
+        closeBtn.onclick = () => this.closeMeetingPopup();
+
+        const timeEl = this.meetingPopup.querySelector('.meeting-popup-time');
+        Object.assign(timeEl.style, {
+            color: 'var(--text-secondary, #aaa)',
+            marginBottom: '4px'
+        });
+
+        const locationEl = this.meetingPopup.querySelector('.meeting-popup-location');
+        if (locationEl) {
+            Object.assign(locationEl.style, {
+                color: 'var(--text-secondary, #888)',
+                fontSize: '12px',
+                marginBottom: '8px',
+                wordBreak: 'break-word'
+            });
+        }
+
+        const joinBtn = this.meetingPopup.querySelector('.meeting-popup-join');
+        if (joinBtn) {
+            Object.assign(joinBtn.style, {
+                background: 'var(--accent-color, #4a9eff)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '8px 16px',
+                cursor: 'pointer',
+                width: '100%',
+                marginTop: '8px',
+                fontWeight: '500'
+            });
+            joinBtn.onclick = () => {
+                window.open(meetLink, '_blank');
+                this.closeMeetingPopup();
+            };
+        }
+
+        document.body.appendChild(this.meetingPopup);
+
+        // Close on outside click
+        setTimeout(() => {
+            this.meetingPopupClickHandler = (e) => {
+                if (!this.meetingPopup?.contains(e.target)) {
+                    this.closeMeetingPopup();
+                }
+            };
+            document.addEventListener('click', this.meetingPopupClickHandler);
+        }, 100);
+    }
+
+    closeMeetingPopup() {
+        if (this.meetingPopup) {
+            this.meetingPopup.remove();
+            this.meetingPopup = null;
+        }
+        if (this.meetingPopupClickHandler) {
+            document.removeEventListener('click', this.meetingPopupClickHandler);
+            this.meetingPopupClickHandler = null;
+        }
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     registerTools() {
