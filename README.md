@@ -97,6 +97,7 @@ Jira    ──┘         (one set of tools for all sources)
 | [Google Calendar](plugins/google-calendar/) | Calendar | Working | OAuth via thymer-auth worker |
 | [Google Contacts](plugins/google-contacts/) | People | Working | OAuth via thymer-self-auth (RESTRICTED scope) |
 | [Telegram](plugins/telegram/) | Multi | Working | Smart routing to Journal/Captures/Issues |
+| [Desktop Bridge](plugins/desktop-bridge/) | - | Working | Connects Thymer to thymer-bar for MCP |
 
 ## Quick Start
 
@@ -156,6 +157,10 @@ Create App Plugins for each source you want to sync:
 
 **Telegram Sync**:
 - Paste `plugins/telegram/plugin.js` → Custom Code
+
+**Desktop Bridge** (for MCP integration):
+- Paste `plugins/desktop-bridge/plugin.js` → Custom Code
+- Requires [thymer-bar](desktop/) running
 
 ### 4. Configure Each Plugin
 
@@ -277,6 +282,7 @@ Click the wand icon for:
 | `list_collections` | List available collections and schemas |
 | `get_note(guid)` | Get a note by GUID |
 | `append_to_note(guid, content)` | Append to a note by GUID |
+| `save_note(collection, content)` | Create a new note in a collection |
 | `get_todays_journal` | Get today's daily note |
 | `log_to_journal(content)` | Append to today's journal |
 
@@ -365,7 +371,7 @@ Each collection provides query tools that agents can use. Tools are source-agnos
 |------------|-------|-------------|
 | **Issues** | `find`, `get`, `search`, `summarize_open` | Query issues by state, repo, type, assignee |
 | **Captures** | `find`, `search`, `recent`, `by_book` | Find highlights by source, author, or content |
-| **Calendar** | `find`, `today`, `upcoming`, `needs_followup`, `search` | Query events by date, calendar, or status |
+| **Calendar** | `find`, `today`, `upcoming`, `needs_followup`, `search` | Query events by date, calendar, or status. Also adds a turquoise meeting countdown to the status bar. |
 | **People** | `find`, `search`, `needs_contact`, `at_organization`, `recent_contacts` | Find contacts, track relationship health |
 
 Example agent interaction:

@@ -1,6 +1,6 @@
 # Calendar Collection
 
-Calendar events from any source - with meeting prep and review tracking.
+Calendar events from any source - with meeting prep tracking, review tools, and a turquoise meeting countdown.
 
 ## Populated By
 
@@ -21,7 +21,7 @@ Calendar events from any source - with meeting prep and review tracking.
 | `source` | choice | Google, Outlook, Proton, iCal, Manual |
 | `time_period` | datetime | Event start/end time |
 | `url` | url | Link to original event |
-| `all_day` | checkbox | Whether it's an all-day event |
+| `all_day` | choice | Yes/No - Whether it's an all-day event |
 | `updated_at` | text | Last sync update |
 
 ### Event Details (Editable)
@@ -38,10 +38,10 @@ Calendar events from any source - with meeting prep and review tracking.
 
 | Field | Type | Options | Description |
 |-------|------|---------|-------------|
-| `prep` | checkbox | - | Preparation complete |
+| `prep` | choice | Yes/No | Preparation complete |
 | `energy` | choice | High, Medium, Low | Energy level required/spent |
 | `outcome` | choice | Productive, Neutral, Waste | Meeting outcome |
-| `followup` | checkbox | - | Needs follow-up action |
+| `followup` | choice | Yes/No | Needs follow-up action |
 
 ## Views
 
@@ -83,3 +83,61 @@ Use the `energy` and `outcome` fields to understand your meeting patterns:
 - **High energy + Waste** = Meetings to decline or shorten
 - **Low energy + Productive** = Efficient meetings to protect
 - **High energy + Productive** = Important but costly - schedule carefully
+
+## Meeting Status Bar
+
+The Calendar collection adds a turquoise meeting countdown to Thymer's status bar:
+
+```
+📅 in 2h      → More than 2 hours away
+📅 in 45m     → Less than 2 hours (shows minutes)
+📅 in 12m     → Less than 30 minutes (text turns turquoise - urgent!)
+📅 next 30m   → Meeting is ongoing (shows time remaining)
+```
+
+**Click the icon** to see a popup with:
+- Meeting title
+- Time and location
+- "Join Meeting" button (extracts link from `meet_link` or `location`)
+
+The countdown updates every minute and only shows timed events (not all-day).
+
+## MCP Tools
+
+When connected via thymer-bar, these tools are available to AI assistants:
+
+| Tool | Description |
+|------|-------------|
+| `calendar_today` | Get today's events with rich date/time info |
+| `calendar_upcoming` | Get events in the next N days (default: 7) |
+| `calendar_find` | Find events by calendar or status |
+| `calendar_search` | Search events by title or location |
+| `calendar_needs_followup` | Get events marked for follow-up |
+
+### Example: Claude checking your schedule
+
+```
+User: What's on my calendar today?
+
+Claude: [calls calendar_today]
+        You have 3 events today:
+        - Team standup at 9:00 (in 45m)
+        - Design review at 14:00
+        - 1:1 with Alex at 16:00
+```
+
+### Rich Date Format
+
+The MCP tools return Thymer's native date format for timezone accuracy:
+
+```json
+{
+  "title": "Team Meeting",
+  "when": {
+    "date": "2026-01-04",
+    "time": "17:00",
+    "end_time": "18:00",
+    "all_day": false
+  }
+}
+```
