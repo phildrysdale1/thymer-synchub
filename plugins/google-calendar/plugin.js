@@ -170,6 +170,7 @@ class Plugin extends AppPlugin {
             name: 'Google Calendar',
             icon: 'ti-calendar',
             defaultInterval: '15m',
+            version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
         // Register connect function for dashboard button

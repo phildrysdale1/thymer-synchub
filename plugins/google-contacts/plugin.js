@@ -158,6 +158,7 @@ class Plugin extends AppPlugin {
             name: 'Google Contacts',
             icon: 'ti-wallet',
             defaultInterval: '1h', // Contacts don't change often
+            version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
         // Register connect function for dashboard button

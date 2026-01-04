@@ -73,6 +73,7 @@ class Plugin extends CollectionPlugin {
 
         window.syncHub.registerCollectionTools({
             collection: 'Issues',
+            version: VERSION,
             description: 'Issues and pull requests from any source (GitHub, GitLab, Jira, etc.)',
             schema: {
                 title: 'Issue title',

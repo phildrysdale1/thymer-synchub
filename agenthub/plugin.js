@@ -219,6 +219,15 @@ class Plugin extends CollectionPlugin {
 
         console.log('[AgentHub] Initializing' + (window.syncHub ? ' (SyncHub ready)' : ' (standalone)'));
 
+        // Register with SyncHub for health tracking
+        if (window.syncHub?.registerHub) {
+            window.syncHub.registerHub({
+                id: 'agenthub',
+                name: 'AgentHub',
+                version: VERSION
+            });
+        }
+
         // Load agents and register commands (reload page for config changes)
         await this.loadAgents();
 

@@ -33,6 +33,7 @@ class Plugin extends AppPlugin {
             name: 'Readwise',
             icon: 'ti-books',
             defaultInterval: '1h',
+            version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
         console.log('[Readwise] Registered successfully');

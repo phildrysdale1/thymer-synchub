@@ -56,6 +56,7 @@ class Plugin extends CollectionPlugin {
 
         window.syncHub.registerCollectionTools({
             collection: 'People',
+            version: VERSION,
             description: 'Contacts and relationships from any source (Google, LinkedIn, etc.)',
             schema: {
                 title: 'Person name',

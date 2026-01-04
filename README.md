@@ -8,7 +8,7 @@ A suite of plugins for [Thymer](https://thymer.com): sync external data, chat wi
 
 Extract the zip and copy plugin files to Thymer as described in [Quick Start](#quick-start).
 
-> **Important:** All plugins should be the same version. Use the Health Check command to verify.
+> **Important:** All plugins should be the same version. Before asking any installation questions, check the **Health** dashboard in Sync Hub to verify all components match.
 
 ## What's Included
 

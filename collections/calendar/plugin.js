@@ -446,6 +446,7 @@ class Plugin extends CollectionPlugin {
 
         window.syncHub.registerCollectionTools({
             collection: 'Calendar',
+            version: VERSION,
             description: 'Calendar events from any source (Google, Outlook, Proton, iCal, etc.)',
             schema: {
                 title: 'Event title',

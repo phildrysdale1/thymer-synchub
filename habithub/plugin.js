@@ -371,7 +371,31 @@ class Plugin extends CollectionPlugin {
         // Register commands
         this.registerCommands();
 
+        // Register with SyncHub for health tracking
+        this.registerWithSyncHub();
+
         console.log('[HabitHub] Loaded');
+    }
+
+    /**
+     * Register with SyncHub for version health tracking
+     */
+    registerWithSyncHub() {
+        const register = () => {
+            if (window.syncHub?.registerHub) {
+                window.syncHub.registerHub({
+                    id: 'habithub',
+                    name: 'HabitHub',
+                    version: VERSION
+                });
+            }
+        };
+
+        if (window.syncHub) {
+            register();
+        } else {
+            window.addEventListener('synchub-ready', register, { once: true });
+        }
     }
 
     onUnload() {

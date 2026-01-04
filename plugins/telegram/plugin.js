@@ -40,6 +40,7 @@ class Plugin extends AppPlugin {
             name: 'Telegram',
             icon: 'ti-plane',
             defaultInterval: '1m',
+            version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
     }

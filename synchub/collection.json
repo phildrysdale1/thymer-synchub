@@ -336,6 +336,20 @@
       "sort_dir": "asc",
       "sort_field_id": "plugin_id",
       "opts": {}
+    },
+    {
+      "id": "VSYNCHUB003",
+      "shown": true,
+      "icon": "ti-stethoscope",
+      "label": "Health",
+      "description": "Plugin version health check",
+      "field_ids": [],
+      "type": "custom",
+      "read_only": false,
+      "group_by_field_id": null,
+      "sort_dir": "asc",
+      "sort_field_id": "plugin_id",
+      "opts": {}
     }
   ]
 }

@@ -35,6 +35,7 @@ class Plugin extends AppPlugin {
             name: 'GitHub',
             icon: 'ti-brand-github',
             defaultInterval: '5m',
+            version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
         console.log('[GitHub] Registered successfully');

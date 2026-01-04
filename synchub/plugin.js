@@ -174,6 +174,132 @@ const DASHBOARD_CSS = `
         color: var(--text-default);
         margin-bottom: 8px;
     }
+    /* Health view styles */
+    .health-view {
+        padding: 24px;
+        font-family: var(--font-family);
+    }
+    .health-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+    .health-header-icon {
+        font-size: 28px;
+        color: var(--text-muted);
+    }
+    .health-header-title {
+        font-size: 24px;
+        font-weight: 600;
+        color: var(--text-default);
+    }
+    .health-version-card {
+        background: var(--bg-hover);
+        padding: 16px 20px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+        border: 1px solid var(--border-default);
+    }
+    .health-version-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+    .health-version-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: var(--text-default);
+    }
+    .health-section-title {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 12px;
+    }
+    .health-plugin-list {
+        background: var(--bg-default);
+        border: 1px solid var(--border-default);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    .health-plugin-row {
+        display: flex;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-default);
+    }
+    .health-plugin-row:last-child {
+        border-bottom: none;
+    }
+    .health-plugin-icon {
+        margin-right: 12px;
+        font-size: 16px;
+    }
+    .health-plugin-icon.ok { color: var(--enum-green-fg); }
+    .health-plugin-icon.warn { color: var(--enum-orange-fg); }
+    .health-plugin-name {
+        flex: 1;
+        font-weight: 500;
+        color: var(--text-default);
+    }
+    .health-plugin-version {
+        font-family: monospace;
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+    .health-plugin-version.mismatch {
+        color: var(--enum-orange-fg);
+        font-weight: 600;
+    }
+    .health-status-banner {
+        margin-top: 20px;
+        padding: 14px 16px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 500;
+    }
+    .health-status-banner.ok {
+        background: var(--enum-green-bg);
+        color: var(--enum-green-fg);
+    }
+    .health-status-banner.warn {
+        background: var(--enum-orange-bg);
+        color: var(--enum-orange-fg);
+    }
+    .health-empty {
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--text-muted);
+    }
+    .health-columns {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+        margin-bottom: 20px;
+    }
+    @media (max-width: 800px) {
+        .health-columns {
+            grid-template-columns: 1fr;
+        }
+    }
+    .health-column {
+        min-width: 0;
+    }
+    .health-column-title {
+        font-size: 11px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--border-default);
+    }
     /* Action buttons row */
     .sync-card-actions {
         display: flex;
@@ -243,6 +369,7 @@ class Plugin extends CollectionPlugin {
             version: VERSION,
             checkVersion: (requiredVersion) => this.checkVersion(requiredVersion),
             register: (config) => this.registerPlugin(config),
+            registerHub: (config) => this.registerHub(config),  // For non-sync hubs
             unregister: (pluginId) => this.unregisterPlugin(pluginId),
             requestSync: (pluginId, options) => this.requestSync(pluginId, options),
             registerConnect: (pluginId, connectFn) => this.registerConnect(pluginId, connectFn),
@@ -313,15 +440,11 @@ class Plugin extends CollectionPlugin {
             onSelected: () => this.resetStuckSyncs()
         });
 
-        // Command palette: Health Check
-        this.healthCheckCommand = this.ui.addCommandPaletteCommand({
-            label: 'Sync Hub: Health Check',
-            icon: 'stethoscope',
-            onSelected: () => this.showHealthCheck()
-        });
-
         // Register Dashboard view
         this.registerDashboardView();
+
+        // Register Health view
+        this.registerHealthView();
 
         // Start the scheduler
         this.startScheduler();
@@ -342,9 +465,6 @@ class Plugin extends CollectionPlugin {
         }
         if (this.resetCommand) {
             this.resetCommand.remove();
-        }
-        if (this.healthCheckCommand) {
-            this.healthCheckCommand.remove();
         }
         if (this.statusBarItem) {
             this.statusBarItem.remove();
@@ -566,6 +686,111 @@ class Plugin extends CollectionPlugin {
     }
 
     /**
+     * Register the Health custom view for version checking
+     */
+    registerHealthView() {
+        this.views.register("Health", (viewContext) => {
+            const element = viewContext.getElement();
+            let container = null;
+
+            const renderHealth = () => {
+                if (!container) return;
+
+                const allPlugins = this.getRegisteredPluginsList();
+                const hubs = allPlugins.filter(p => p.isHub);
+                const collections = allPlugins.filter(p => p.isCollection);
+                const syncPlugins = allPlugins.filter(p => !p.isHub && !p.isCollection);
+
+                const unknowns = allPlugins.filter(p => p.isUnknown);
+                const mismatches = allPlugins.filter(p => !p.versionMatch && !p.isUnknown);
+                const hasIssues = unknowns.length > 0 || mismatches.length > 0;
+
+                const renderColumn = (title, items) => {
+                    if (items.length === 0) {
+                        return `
+                            <div class="health-column">
+                                <div class="health-column-title">${title}</div>
+                                <div style="color: var(--text-muted); font-size: 13px; padding: 12px 0;">None registered</div>
+                            </div>
+                        `;
+                    }
+                    return `
+                        <div class="health-column">
+                            <div class="health-column-title">${title}</div>
+                            <div class="health-plugin-list">
+                                ${items.map(p => `
+                                    <div class="health-plugin-row">
+                                        <span class="health-plugin-icon ${p.versionMatch ? 'ok' : 'warn'} ti ti-${p.versionMatch ? 'check' : 'alert-triangle'}"></span>
+                                        <span class="health-plugin-name">${this.escapeHtml(p.name)}</span>
+                                        <span class="health-plugin-version ${p.versionMatch ? '' : 'mismatch'}">${p.version}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                };
+
+                container.innerHTML = `
+                    <div class="health-header">
+                        <span class="health-header-icon ti ti-stethoscope"></span>
+                        <span class="health-header-title">Health Check</span>
+                        <span style="margin-left: auto; font-size: 14px; color: var(--text-muted);">SyncHub ${VERSION}</span>
+                    </div>
+
+                    ${allPlugins.length === 0 ? `
+                        <div class="health-empty">
+                            <div style="font-size: 32px; margin-bottom: 12px;">📡</div>
+                            <div>No plugins registered yet</div>
+                            <div style="font-size: 12px; margin-top: 8px;">Install a sync plugin to see it here</div>
+                        </div>
+                    ` : `
+                        <div class="health-columns">
+                            ${renderColumn('Hubs', hubs)}
+                            ${renderColumn('Collections', collections)}
+                            ${renderColumn('Sync Plugins', syncPlugins)}
+                        </div>
+
+                        ${hasIssues ? `
+                            <div class="health-status-banner warn">
+                                <span class="ti ti-alert-triangle"></span>
+                                <span>${unknowns.length > 0 ? `${unknowns.length} need updating (unknown).` : ''} ${mismatches.length > 0 ? `${mismatches.length} version mismatch.` : ''} Update all to ${VERSION}.</span>
+                            </div>
+                        ` : `
+                            <div class="health-status-banner ok">
+                                <span class="ti ti-check"></span>
+                                <span>All ${allPlugins.length} components up to date!</span>
+                            </div>
+                        `}
+                    `}
+                `;
+            };
+
+            return {
+                onLoad: () => {
+                    viewContext.makeWideLayout();
+                    element.style.overflow = 'auto';
+                    container = document.createElement('div');
+                    container.className = 'health-view';
+                    element.appendChild(container);
+                    renderHealth();
+                },
+                onRefresh: () => {
+                    renderHealth();
+                },
+                onPanelResize: () => {},
+                onDestroy: () => {
+                    container = null;
+                },
+                onFocus: () => {
+                    renderHealth();
+                },
+                onBlur: () => {},
+                onKeyboardNavigation: () => {}
+            };
+        });
+    }
+
+    /**
      * Escape HTML to prevent XSS
      * @param {string} text
      * @returns {string}
@@ -672,6 +897,37 @@ class Plugin extends CollectionPlugin {
     }
 
     /**
+     * Register a hub (non-sync plugin) for health tracking
+     * @param {Object} config
+     * @param {string} config.id - Unique hub ID (e.g., 'agenthub')
+     * @param {string} config.name - Display name
+     * @param {string} config.version - Hub version (e.g., 'v1.0.0')
+     */
+    registerHub(config) {
+        const { id, name, version } = config;
+
+        if (!id) {
+            this.log(`Hub registration failed: missing id`, 'error');
+            return;
+        }
+
+        // Track hub version (no sync function needed)
+        this.registeredPlugins.set(id, {
+            name: name || id,
+            version: version || 'unknown',
+            registeredAt: new Date(),
+            isHub: true
+        });
+
+        // Version mismatch warning
+        if (version && version !== VERSION) {
+            console.warn(`[SyncHub] ⚠️ Version mismatch: ${name || id} is ${version}, but SyncHub is ${VERSION}`);
+        }
+
+        console.log(`[SyncHub] Registered hub: ${id} ${version || ''}`);
+    }
+
+    /**
      * Check if a version meets requirements (for plugins to check SyncHub version)
      */
     checkVersion(requiredVersion) {
@@ -686,11 +942,15 @@ class Plugin extends CollectionPlugin {
     getRegisteredPluginsList() {
         const plugins = [];
         for (const [id, info] of this.registeredPlugins) {
+            const isUnknown = !info.version || info.version === 'unknown';
             plugins.push({
                 id,
                 name: info.name,
-                version: info.version,
-                versionMatch: info.version === VERSION || info.version === 'unknown',
+                version: info.version || 'unknown',
+                versionMatch: !isUnknown && info.version === VERSION,
+                isUnknown,
+                isHub: info.isHub || false,
+                isCollection: info.isCollection || false,
                 syncHubVersion: VERSION
             });
         }
@@ -1162,9 +1422,10 @@ class Plugin extends CollectionPlugin {
      * @param {string} config.description - Human-readable description
      * @param {Object} config.schema - Field descriptions for the collection
      * @param {Array} config.tools - Array of tool definitions
+     * @param {string} config.version - Collection plugin version (e.g., 'v1.0.0')
      */
     registerCollectionTools(config) {
-        const { collection, description, schema, tools } = config;
+        const { collection, description, schema, tools, version } = config;
 
         if (!collection || !tools) {
             this.log('registerCollectionTools: missing collection or tools', 'error');
@@ -1178,7 +1439,21 @@ class Plugin extends CollectionPlugin {
             tools: tools || []
         });
 
-        console.log(`[SyncHub] Registered ${tools.length} tools for collection: ${collection}`);
+        // Also register for health tracking
+        const collectionId = collection.toLowerCase().replace(/\s+/g, '-');
+        this.registeredPlugins.set(collectionId, {
+            name: collection,
+            version: version || 'unknown',
+            registeredAt: new Date(),
+            isCollection: true
+        });
+
+        // Version mismatch warning
+        if (version && version !== VERSION) {
+            console.warn(`[SyncHub] ⚠️ Version mismatch: ${collection} is ${version}, but SyncHub is ${VERSION}`);
+        }
+
+        console.log(`[SyncHub] Registered ${tools.length} tools for collection: ${collection} ${version || ''}`);
     }
 
     /**
@@ -2229,64 +2504,4 @@ class Plugin extends CollectionPlugin {
         }
     }
 
-    /**
-     * Show health check popup with all registered plugins and their versions
-     */
-    showHealthCheck() {
-        const plugins = this.getRegisteredPluginsList();
-        const mismatches = plugins.filter(p => !p.versionMatch);
-
-        let content = `<div style="padding: 16px; font-family: var(--font-family);">`;
-        content += `<div style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">`;
-        content += `<span class="ti ti-stethoscope" style="margin-right: 8px;"></span>`;
-        content += `Sync Hub Health Check</div>`;
-
-        content += `<div style="background: var(--bg-hover); padding: 12px; border-radius: 8px; margin-bottom: 16px;">`;
-        content += `<div style="font-size: 14px; color: var(--text-muted);">SyncHub Version</div>`;
-        content += `<div style="font-size: 24px; font-weight: 600;">${VERSION}</div>`;
-        content += `</div>`;
-
-        if (plugins.length === 0) {
-            content += `<div style="color: var(--text-muted); padding: 20px; text-align: center;">No plugins registered yet</div>`;
-        } else {
-            content += `<div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase;">Registered Plugins</div>`;
-
-            for (const plugin of plugins) {
-                const icon = plugin.versionMatch
-                    ? `<span class="ti ti-check" style="color: var(--enum-green-fg);"></span>`
-                    : `<span class="ti ti-alert-triangle" style="color: var(--enum-orange-fg);"></span>`;
-
-                const versionStyle = plugin.versionMatch
-                    ? 'color: var(--text-muted);'
-                    : 'color: var(--enum-orange-fg); font-weight: 600;';
-
-                content += `<div style="display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--bg-hover);">`;
-                content += `<span style="margin-right: 8px;">${icon}</span>`;
-                content += `<span style="flex: 1;">${plugin.name}</span>`;
-                content += `<span style="${versionStyle}">${plugin.version}</span>`;
-                content += `</div>`;
-            }
-        }
-
-        if (mismatches.length > 0) {
-            content += `<div style="margin-top: 16px; padding: 12px; background: var(--enum-orange-bg); border-radius: 8px; color: var(--enum-orange-fg);">`;
-            content += `<span class="ti ti-alert-triangle" style="margin-right: 8px;"></span>`;
-            content += `${mismatches.length} plugin(s) have version mismatch. Update all plugins to ${VERSION}.`;
-            content += `</div>`;
-        } else if (plugins.length > 0) {
-            content += `<div style="margin-top: 16px; padding: 12px; background: var(--enum-green-bg); border-radius: 8px; color: var(--enum-green-fg);">`;
-            content += `<span class="ti ti-check" style="margin-right: 8px;"></span>`;
-            content += `All plugins are up to date!`;
-            content += `</div>`;
-        }
-
-        content += `</div>`;
-
-        this.ui.addPopup({
-            content,
-            dismissible: true,
-            closeIcon: true,
-            width: 400,
-        });
-    }
 }

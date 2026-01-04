@@ -1,3 +1,4 @@
+const VERSION = 'v0.9.0';
 /**
  * Template Sync Plugin
  *
@@ -42,6 +43,7 @@ class Plugin extends AppPlugin {
             name: 'PLUGIN_NAME',
             icon: 'ti-PLUGIN_ICON',
             defaultInterval: '5m',
+            version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
     }

@@ -49,6 +49,7 @@ class Plugin extends CollectionPlugin {
 
         window.syncHub.registerCollectionTools({
             collection: 'Captures',
+            version: VERSION,
             description: 'Highlights, notes, and bookmarks from any source (Readwise, Kindle, Web, etc.)',
             schema: {
                 title: 'Capture title or highlight text',
