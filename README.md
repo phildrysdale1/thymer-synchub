@@ -12,6 +12,15 @@ A suite of plugins for [Thymer](https://thymer.com): sync external data, chat wi
 | **[Collections](collections/)** | Data | Shared schemas for Issues, Captures, Calendar, People |
 | **[Sync Plugins](plugins/)** | Integrations | GitHub, Readwise, Google Calendar, Telegram, etc. |
 
+### Optional: Desktop Bridge & MCP
+
+| Component | Description |
+|-----------|-------------|
+| **[thymer-bar](desktop/)** | System tray app that bridges Thymer to external tools |
+| **[CLI](cli/)** | Command-line interface for queries and syncs |
+
+These enable AI assistants like Claude Desktop to interact with your Thymer workspace via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+
 ## Architecture
 
 ```
@@ -215,6 +224,65 @@ Each card shows:
 - **Sync Hub: Sync All** - Trigger all enabled syncs
 - **Sync Hub: Reset Stuck Syncs** - Reset any stuck "Syncing" statuses
 - **Paste Markdown** - Insert markdown into current record
+
+## MCP Integration (Optional)
+
+The MCP (Model Context Protocol) integration lets AI assistants like Claude interact with your Thymer workspace from outside the browser.
+
+### Quick Setup
+
+1. **Build thymer-bar**:
+   ```bash
+   make desktop
+   ```
+
+2. **Run thymer-bar**:
+   ```bash
+   ./desktop/thymer-bar
+   ```
+
+3. **Open Thymer** with SyncHub - it auto-connects to thymer-bar
+
+4. **Configure Claude Code** (`~/.claude/settings.json`):
+   ```json
+   {
+     "mcpServers": {
+       "thymer": {
+         "type": "url",
+         "url": "http://127.0.0.1:9850"
+       }
+     }
+   }
+   ```
+
+### Status Bar Indicators
+
+When connected, SyncHub shows two icons in the status bar:
+
+| Icon | Meaning |
+|------|---------|
+| 🖥️ `ti-server` | Sync status (green=idle, blue glow=syncing, red=error) |
+| 🪄 `ti-wand` | MCP status (purple=connected, glows on activity) |
+
+Click the wand icon for:
+- Connection status and tool count
+- Connect/Disconnect actions
+- Live activity log showing tool calls
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `search_workspace` | Search across all collections |
+| `list_collections` | List available collections and schemas |
+| `get_note(guid)` | Get a note by GUID |
+| `append_to_note(guid, content)` | Append to a note by GUID |
+| `get_todays_journal` | Get today's daily note |
+| `log_to_journal(content)` | Append to today's journal |
+
+Plus collection-specific tools (Calendar, Issues, Captures, People).
+
+See [thymer-bar README](desktop/) for detailed setup and architecture.
 
 ## Creating New Plugins
 
