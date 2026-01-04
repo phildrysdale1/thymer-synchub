@@ -1,3 +1,4 @@
+const VERSION = 'v0.9.0';
 /**
  * GitHub Sync - App Plugin
  *

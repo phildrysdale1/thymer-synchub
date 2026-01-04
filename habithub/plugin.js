@@ -1,3 +1,4 @@
+const VERSION = 'v0.9.0';
 /**
  * HabitHub - Track habits and break vices
  *

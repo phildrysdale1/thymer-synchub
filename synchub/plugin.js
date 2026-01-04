@@ -10,7 +10,7 @@
  * - State stored in Thymer, not IndexedDB
  */
 
-const VERSION = 'v1.0.0';
+const VERSION = 'v0.9.0';
 
 // Markdown config
 const BLANK_LINE_BEFORE_HEADINGS = true;

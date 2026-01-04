@@ -1,3 +1,4 @@
+const VERSION = 'v0.9.0';
 /**
  * Issues Collection - Collection Plugin
  *
