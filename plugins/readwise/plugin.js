@@ -1,4 +1,4 @@
-const VERSION = 'v0.9.0';
+const VERSION = 'v1.0.0';
 /**
  * Readwise Sync - App Plugin
  *
