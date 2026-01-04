@@ -2,6 +2,14 @@
 
 A suite of plugins for [Thymer](https://thymer.com): sync external data, chat with AI agents, and track habits.
 
+## Download
+
+**[Download latest release](https://github.com/riclib/thymer-synchub/releases/latest)** → `thymer-synchub-vX.Y.Z.zip`
+
+Extract the zip and copy plugin files to Thymer as described in [Quick Start](#quick-start).
+
+> **Important:** All plugins should be the same version. Use the Health Check command to verify.
+
 ## What's Included
 
 | Plugin | Type | Description |
@@ -87,6 +95,31 @@ Jira    ──┘         (one set of tools for all sources)
 - **Toast Notifications**: Configurable alerts for new records, errors, or silent
 - **Rate Limit Handling**: Automatic backoff and retry
 - **Timeout Protection**: 5-minute max sync time prevents stuck syncs
+- **Version Health Check**: Verify all plugins are the same version
+
+## Version Health
+
+All plugins should be the same version to avoid compatibility issues.
+
+### Health Check Command
+
+Open Command Palette → **Sync Hub: Health Check**
+
+Shows a popup with:
+- Current SyncHub version
+- All registered plugins and their versions
+- ✓ Green check if versions match
+- ⚠️ Warning if version mismatch detected
+
+### Console Warnings
+
+When a plugin registers with a different version, you'll see:
+
+```
+[SyncHub] ⚠️ Version mismatch: Calendar is v0.8.0, but SyncHub is v0.9.0
+```
+
+**Fix:** Download the [latest release](https://github.com/riclib/thymer-synchub/releases/latest) and update all plugins.
 
 ## Available Plugins
 
@@ -400,6 +433,26 @@ Agent: [calls Issues.find(state="Open", type="Bug")]
 - Linear → Issues
 - Outlook Calendar → Calendar
 - Google Tasks → Tasks (bidirectional) - [#1](https://github.com/riclib/thymer-synchub/issues/1)
+
+## Creating Releases
+
+For maintainers:
+
+```bash
+# Preview what will happen
+task release:dry-run -- v1.0.0
+
+# Create a release (updates all versions, tags, pushes, creates GitHub release)
+task release -- v1.0.0
+```
+
+This will:
+1. Update `VERSION` file
+2. Add `const VERSION = 'v1.0.0';` to all plugin .js files
+3. Commit and tag
+4. Push to origin with tags
+5. Create zip bundle with all plugins
+6. Create GitHub release with the zip attached
 
 ## License
 
