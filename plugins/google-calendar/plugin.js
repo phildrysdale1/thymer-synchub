@@ -377,6 +377,7 @@ class Plugin extends AppPlugin {
         let created = 0;
         let updated = 0;
         const changes = [];
+        const recurringGroups = new Map(); // Track recurring event instances
 
         const existingRecords = await calendarCollection.getAllRecords();
 
@@ -388,6 +389,7 @@ class Plugin extends AppPlugin {
 
             const externalId = `gcal_${event.id}`;
             const existingRecord = existingRecords.find(r => r.text('external_id') === externalId);
+            const isRecurring = !!event.recurringEventId;
 
             // Parse event times using Thymer's DateTime class for proper range support
             const isAllDay = !!event.start?.date; // All-day events use 'date', not 'dateTime'
@@ -430,12 +432,16 @@ class Plugin extends AppPlugin {
                     updated++;
                     debug(`Updated: ${eventData.title}`);
 
-                    changes.push({
-                        verb: 'updated',
-                        title: eventData.title,
-                        guid: existingRecord.guid,
-                        major: false,
-                    });
+                    if (isRecurring) {
+                        this.trackRecurringChange(recurringGroups, event, 'updated', existingRecord.guid);
+                    } else {
+                        changes.push({
+                            verb: 'updated',
+                            title: eventData.title,
+                            guid: existingRecord.guid,
+                            major: false,
+                        });
+                    }
                 }
             } else {
                 const record = await this.createRecord(calendarCollection, eventData);
@@ -443,17 +449,55 @@ class Plugin extends AppPlugin {
                 debug(`Created: ${eventData.title}`);
 
                 if (record) {
-                    changes.push({
-                        verb: 'added',
-                        title: eventData.title,
-                        guid: record.guid,
-                        major: true, // New events are major
-                    });
+                    if (isRecurring) {
+                        this.trackRecurringChange(recurringGroups, event, 'added', record.guid);
+                    } else {
+                        changes.push({
+                            verb: 'added',
+                            title: eventData.title,
+                            guid: record.guid,
+                            major: true,
+                        });
+                    }
                 }
             }
         }
 
+        // Collapse recurring events into single change entries
+        for (const [recurringId, group] of recurringGroups) {
+            const countText = group.count > 1 ? `${group.count} instances of ` : '';
+            changes.push({
+                verb: group.verb,
+                title: `${countText}${group.title}`,
+                guid: group.firstGuid,
+                major: group.verb === 'added',
+                isRecurring: true,
+                count: group.count,
+            });
+        }
+
         return { created, updated, changes };
+    }
+
+    /**
+     * Track recurring event instances for collapsed journal entries
+     */
+    trackRecurringChange(groups, event, verb, guid) {
+        const recurringId = event.recurringEventId;
+        if (!groups.has(recurringId)) {
+            groups.set(recurringId, {
+                title: event.summary || 'Untitled Event',
+                verb: verb,
+                firstGuid: guid,
+                count: 0,
+            });
+        }
+        const group = groups.get(recurringId);
+        group.count++;
+        // If any instance is 'added', the whole group is 'added'
+        if (verb === 'added') {
+            group.verb = 'added';
+        }
     }
 
     /**

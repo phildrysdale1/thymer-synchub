@@ -1481,14 +1481,22 @@ class Plugin extends CollectionPlugin {
             let lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
 
             for (const change of filteredChanges) {
-                // Create parent line: **15:21** highlighted [[Record Title]]
+                // Create parent line: **15:21** added [[Record Title]]
+                // Or for recurring: **15:21** added 7 instances of [[Record Title]]
                 const parentItem = await journalRecord.createLineItem(null, lastItem, 'text');
                 if (parentItem) {
-                    parentItem.setSegments([
+                    const segments = [
                         { type: 'bold', text: timestamp },
                         { type: 'text', text: ` ${change.verb} ` },
-                        { type: 'ref', text: { guid: change.guid } }
-                    ]);
+                    ];
+
+                    // Add count for recurring events
+                    if (change.count && change.count > 1) {
+                        segments.push({ type: 'text', text: `${change.count} instances of ` });
+                    }
+
+                    segments.push({ type: 'ref', text: { guid: change.guid } });
+                    parentItem.setSegments(segments);
                     lastItem = parentItem;
 
                     // For verbose mode, add children as nested items
