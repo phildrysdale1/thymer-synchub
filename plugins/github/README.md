@@ -112,7 +112,8 @@ Sync your organization's issues:
 | `project` | From config mapping | For grouping repos |
 | `number` | number | |
 | `type` | "Issue" or "PR" | |
-| `state` | "Open" or "Closed" | |
+| `external_state` | "Open" or "Closed" | Read-only, always synced from GitHub |
+| `status` | "Inbox" (for new) | Your workflow status, never overwritten |
 | `author` | user.login | |
 | `assignee` | assignee.login | |
 | `url` | html_url | |
@@ -120,11 +121,35 @@ Sync your organization's issues:
 | `updated_at` | updated_at | |
 | (content) | body | Inserted as markdown |
 
+## Two-Field Design
+
+The plugin uses separate fields for GitHub state and your workflow:
+
+| Field | Purpose | Synced? |
+|-------|---------|---------|
+| `external_state` | GitHub's state (Open/Closed) | ✅ Always updated |
+| `status` | Your workflow (Inbox → Next → Doing → Done) | ❌ Never touched after creation |
+
+**Benefits:**
+- No conflict between sync and your workflow
+- You control your kanban board completely
+- New issues land in "Inbox" for triage
+- `external_state` shows if GitHub closed/reopened
+
+**Default workflow statuses:**
+- **Inbox** - New issues land here for triage
+- **Backlog** - Acknowledged, not yet prioritized
+- **Next** - Ready to work on
+- **Doing** - Currently in progress
+- **Done** - Completed
+- **Cancelled** - Won't do
+
 ## Sync Behavior
 
 - **Incremental sync**: Only fetches issues updated since last sync
 - **Full sync**: Re-fetches all issues, updates project field on existing issues
 - **Deduplication**: Uses `external_id` to match existing records
+- **Concurrency**: Uses sync locks to prevent duplicate syncs across multiple Thymer tabs/windows
 
 ## Command Palette
 

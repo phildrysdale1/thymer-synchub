@@ -10,7 +10,12 @@
  * - State stored in Thymer, not IndexedDB
  */
 
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
+
+// Sync lock configuration (prevents duplicate syncs across multiple Thymer instances)
+const LOCK_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes - stale lock threshold
+const LOCK_SETTLE_MIN_MS = 100;          // Min wait for double-read pattern
+const LOCK_SETTLE_JITTER_MS = 400;       // Random jitter to reduce race collisions
 
 // Markdown config
 const BLANK_LINE_BEFORE_HEADINGS = true;
@@ -1078,6 +1083,90 @@ class Plugin extends CollectionPlugin {
     // =========================================================================
 
     /**
+     * Generate a random sync_run_id for lock acquisition
+     */
+    generateSyncRunId() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    /**
+     * Attempt to acquire a sync lock using double-read pattern.
+     * Prevents duplicate syncs when multiple Thymer instances are running.
+     *
+     * @param {Object} record - The plugin's Sync Hub record
+     * @returns {string|null} - The sync_run_id if lock acquired, null if failed
+     */
+    async acquireSyncLock(record) {
+        const syncRunId = this.generateSyncRunId();
+        const now = Date.now();
+
+        // Step 1: Check current lock state
+        const currentLock = record.text('sync_lock');
+        if (currentLock) {
+            try {
+                const lock = JSON.parse(currentLock);
+                const lockAge = now - lock.timestamp;
+
+                // If lock is recent (not stale), another instance is syncing
+                if (lockAge < LOCK_TIMEOUT_MS) {
+                    console.log(`[SyncHub] Lock held by another instance (age: ${Math.round(lockAge/1000)}s)`);
+                    return null;
+                }
+                // Lock is stale, we can take it
+                console.log(`[SyncHub] Taking over stale lock (age: ${Math.round(lockAge/1000)}s)`);
+            } catch (e) {
+                // Invalid JSON, treat as unlocked
+            }
+        }
+
+        // Step 2: Write our lock
+        const lockData = JSON.stringify({ timestamp: now, sync_run_id: syncRunId });
+        record.prop('sync_lock')?.set(lockData);
+
+        // Step 3: Wait for other instances to potentially write their lock
+        // Jitter reduces chance of simultaneous re-reads
+        const settleTime = LOCK_SETTLE_MIN_MS + Math.random() * LOCK_SETTLE_JITTER_MS;
+        await new Promise(resolve => setTimeout(resolve, settleTime));
+
+        // Step 4: Re-read and verify we still have the lock
+        // Need to re-fetch the record to get fresh data
+        const freshRecord = await this.findPluginRecord(record.text('plugin_id'));
+        if (!freshRecord) {
+            console.log('[SyncHub] Record disappeared during lock acquisition');
+            return null;
+        }
+
+        const verifyLock = freshRecord.text('sync_lock');
+        if (!verifyLock) {
+            console.log('[SyncHub] Lock was cleared during acquisition');
+            return null;
+        }
+
+        try {
+            const lock = JSON.parse(verifyLock);
+            if (lock.sync_run_id === syncRunId) {
+                // We have the lock!
+                return syncRunId;
+            } else {
+                // Another instance won the race
+                console.log(`[SyncHub] Lost lock race to another instance`);
+                return null;
+            }
+        } catch (e) {
+            console.log('[SyncHub] Lock verification failed:', e.message);
+            return null;
+        }
+    }
+
+    /**
+     * Release the sync lock
+     * @param {Object} record - The plugin's Sync Hub record
+     */
+    releaseSyncLock(record) {
+        record.prop('sync_lock')?.set(null);
+    }
+
+    /**
      * Request a sync for a plugin
      * @param {string} pluginId - The plugin ID
      * @param {Object} options - Optional settings
@@ -1113,6 +1202,21 @@ class Plugin extends CollectionPlugin {
         const syncFn = this.syncFunctions.get(pluginId);
         if (!syncFn) {
             this.log(`No sync function for: ${pluginId}`, 'warn');
+            return;
+        }
+
+        // Acquire sync lock (prevents duplicate syncs across Thymer instances)
+        const syncRunId = await this.acquireSyncLock(record);
+        if (!syncRunId) {
+            // Another instance is already syncing this plugin
+            if (options.manual) {
+                this.ui.addToaster({
+                    title: pluginId,
+                    message: 'Sync already in progress (another tab?)',
+                    dismissible: true,
+                    autoDestroyTime: 3000,
+                });
+            }
             return;
         }
 
@@ -1153,7 +1257,8 @@ class Plugin extends CollectionPlugin {
         } catch (error) {
             errorMsg = error.message || String(error);
         } finally {
-            // ALWAYS reset status - this is the key fix
+            // ALWAYS release lock and reset status
+            this.releaseSyncLock(record);
             const duration = Date.now() - startTime;
             this.currentlySyncing = null;
 

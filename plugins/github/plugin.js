@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
 /**
  * GitHub Sync - App Plugin
  *
@@ -243,7 +243,7 @@ class Plugin extends AppPlugin {
                 project: project,
                 number: issue.number,
                 type: isPR ? 'PR' : 'Issue',
-                // state computed below based on context
+                external_state: githubState === 'open' ? 'Open' : 'Closed',
                 author: issue.user?.login || '',
                 assignee: issue.assignee?.login || '',
                 url: issue.html_url,
@@ -256,67 +256,34 @@ class Plugin extends AppPlugin {
                 // Check if needs update
                 const currentUpdatedAt = existingRecord.text('updated_at');
                 if (currentUpdatedAt !== issue.updated_at) {
-                    const oldState = existingRecord.prop('state')?.choice();
-
-                    // Smart state handling:
-                    // - GitHub closed → always set to Closed (unless user set Cancelled)
-                    // - GitHub open → only change if was Closed (reopened), preserve Next/In Progress
-                    const closedStates = ['Closed', 'Cancelled'];
-                    const openStates = ['Open', 'Next', 'In Progress'];
-
-                    let newState = null;
-                    let stateChanged = false;
-
-                    if (githubState === 'closed') {
-                        // Only update to Closed if not already in a closed state
-                        if (!closedStates.includes(oldState)) {
-                            newState = 'Closed';
-                            stateChanged = true;
-                        }
-                    } else {
-                        // GitHub is open - only change if currently closed (reopened)
-                        if (closedStates.includes(oldState)) {
-                            newState = 'Open';
-                            stateChanged = true;
-                        }
-                        // Otherwise preserve user's workflow state (Next, In Progress)
-                    }
-
-                    if (newState) {
-                        issueData.state = newState;
-                    }
-
-                    let verb, major;
-                    if (stateChanged) {
-                        verb = this.stateToVerb(newState, isMerged);
-                        major = true;  // State changes are major
-                    } else {
-                        verb = 'edited';
-                        major = false;  // Just edits are minor
-                    }
+                    const oldExternalState = existingRecord.prop('external_state')?.choice();
+                    const stateChanged = oldExternalState !== issueData.external_state;
 
                     await this.updateRecord(existingRecord, issueData);
                     updated++;
                     debug(`Updated: ${issue.title}`);
 
+                    const verb = stateChanged
+                        ? this.stateToVerb(issueData.external_state, isMerged)
+                        : 'edited';
+
                     changes.push({
                         verb,
                         title: issue.title,
                         guid: existingRecord.guid,
-                        major,
+                        major: stateChanged,  // State changes are major
                     });
                 }
             } else {
-                // New record - set initial state from GitHub
-                const initialState = githubState === 'open' ? 'Open' : 'Closed';
-                issueData.state = initialState;
+                // New record - set status to Inbox for triage
+                issueData.status = 'Inbox';
 
                 const record = await this.createRecord(issuesCollection, data, issueData);
                 created++;
                 debug(`Created: ${issue.title}`);
 
                 if (record) {
-                    const verb = this.stateToVerb(initialState, isMerged);
+                    const verb = this.stateToVerb(issueData.external_state, isMerged);
                     changes.push({
                         verb,
                         title: issue.title,
@@ -382,8 +349,9 @@ class Plugin extends AppPlugin {
         }
         this.setField(record, 'number', data.number);
         this.setField(record, 'type', data.type);
-        if (data.state) {
-            this.setField(record, 'state', data.state);
+        this.setField(record, 'external_state', data.external_state);
+        if (data.status) {
+            this.setField(record, 'status', data.status);
         }
         this.setField(record, 'author', data.author);
         this.setField(record, 'assignee', data.assignee);

@@ -224,6 +224,15 @@
       "type": "text"
     },
     {
+      "icon": "ti-lock",
+      "id": "sync_lock",
+      "label": "Sync Lock",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "text"
+    },
+    {
       "icon": "ti-key",
       "id": "token",
       "label": "Token",

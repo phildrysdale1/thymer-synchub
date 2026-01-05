@@ -3,7 +3,7 @@
   "name": "Issues",
   "icon": "ti-bug",
   "home": false,
-  "page_field_ids": ["title", "source", "repo", "number", "state", "url"],
+  "page_field_ids": ["title", "source", "repo", "number", "status", "external_state", "url"],
   "item_name": "Issue",
   "description": "Issues & PRs from any source",
   "show_sidebar_items": true,
@@ -155,41 +155,70 @@
     },
     {
       "icon": "ti-circle",
-      "id": "state",
-      "label": "State",
+      "id": "external_state",
+      "label": "External State",
       "many": false,
-      "read_only": false,
+      "read_only": true,
       "active": true,
       "type": "choice",
       "choices": [
         {
           "id": "open",
           "label": "Open",
-          "color": 9,
-          "active": true
-        },
-        {
-          "id": "next",
-          "label": "Next",
-          "color": 11,
-          "active": true
-        },
-        {
-          "id": "in_progress",
-          "label": "In Progress",
-          "color": 3,
+          "color": 2,
           "active": true
         },
         {
           "id": "closed",
           "label": "Closed",
+          "color": 9,
+          "active": true
+        }
+      ]
+    },
+    {
+      "icon": "ti-layout-kanban",
+      "id": "status",
+      "label": "Status",
+      "many": false,
+      "read_only": false,
+      "active": true,
+      "type": "choice",
+      "choices": [
+        {
+          "id": "inbox",
+          "label": "Inbox",
+          "color": 9,
+          "active": true
+        },
+        {
+          "id": "backlog",
+          "label": "Backlog",
+          "color": 1,
+          "active": true
+        },
+        {
+          "id": "next",
+          "label": "Next",
+          "color": 3,
+          "active": true
+        },
+        {
+          "id": "doing",
+          "label": "Doing",
+          "color": 11,
+          "active": true
+        },
+        {
+          "id": "done",
+          "label": "Done",
           "color": 2,
           "active": true
         },
         {
           "id": "cancelled",
           "label": "Cancelled",
-          "color": 13,
+          "color": 8,
           "active": true
         }
       ]
@@ -264,10 +293,10 @@
       "icon": "",
       "label": "By Status",
       "description": "",
-      "field_ids": ["title", "source", "repo", "number", "type"],
+      "field_ids": ["title", "source", "repo", "number", "type", "external_state"],
       "type": "board",
       "read_only": false,
-      "group_by_field_id": "state",
+      "group_by_field_id": "status",
       "sort_dir": "desc",
       "sort_field_id": "updated_at",
       "opts": {}
@@ -278,7 +307,7 @@
       "icon": "",
       "label": "By Source",
       "description": "",
-      "field_ids": ["title", "repo", "number", "state", "type"],
+      "field_ids": ["title", "repo", "number", "status", "type"],
       "type": "board",
       "read_only": false,
       "group_by_field_id": "source",
@@ -292,7 +321,7 @@
       "icon": "",
       "label": "By Project",
       "description": "",
-      "field_ids": ["title", "repo", "number", "state", "type"],
+      "field_ids": ["title", "repo", "number", "status", "type"],
       "type": "board",
       "read_only": false,
       "group_by_field_id": "project",
@@ -313,7 +342,8 @@
         "repo",
         "number",
         "type",
-        "state",
+        "status",
+        "external_state",
         "author",
         "updated_at"
       ],
