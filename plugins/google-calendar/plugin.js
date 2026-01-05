@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
 /**
  * Google Calendar Sync - App Plugin
  *
@@ -200,6 +200,21 @@ class Plugin extends AppPlugin {
             return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
         }
 
+        // Parse config for additional calendars
+        const configJson = myRecord.text('config');
+        let calendarsMapping = { 'primary': 'Primary' }; // Always include primary
+        try {
+            if (configJson) {
+                const config = JSON.parse(configJson);
+                // Support calendars mapping: {"calendar_id": "Label", ...}
+                if (config.calendars && typeof config.calendars === 'object') {
+                    calendarsMapping = { ...calendarsMapping, ...config.calendars };
+                }
+            }
+        } catch (e) {
+            debug('Could not parse config JSON');
+        }
+
         // Token field contains refresh_token and token_endpoint
         const tokenJson = myRecord.text('token');
         const lastRun = myRecord.prop('last_run')?.date();
@@ -260,10 +275,10 @@ class Plugin extends AppPlugin {
 
         // Fetch events
         try {
-            const events = await this.fetchEvents(accessToken, timeMin, timeMax, { log, debug });
+            const events = await this.fetchEvents(accessToken, timeMin, timeMax, calendarsMapping, { log, debug });
             debug(`Fetched ${events.length} events`);
 
-            const result = await this.processEvents(events, calendarCollection, data, { log, debug });
+            const result = await this.processEvents(events, calendarCollection, data, calendarsMapping, { log, debug });
 
             const summary = result.created > 0 || result.updated > 0
                 ? `${result.created} new, ${result.updated} updated`
@@ -317,35 +332,48 @@ class Plugin extends AppPlugin {
     // Google Calendar API
     // =========================================================================
 
-    async fetchEvents(accessToken, timeMin, timeMax, { log, debug }) {
-        const params = new URLSearchParams({
-            timeMin: timeMin.toISOString(),
-            timeMax: timeMax.toISOString(),
-            singleEvents: 'true', // Expand recurring events
-            orderBy: 'startTime',
-            maxResults: '250',
-        });
+    async fetchEvents(accessToken, timeMin, timeMax, calendarsMapping, { log, debug }) {
+        const calendarIds = Object.keys(calendarsMapping);
+        let allEvents = [];
 
-        const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`;
+        for (const calId of calendarIds) {
+            const calLabel = calendarsMapping[calId];
+            debug(`Fetching events for calendar: ${calLabel} (${calId})`);
 
-        const response = await fetch(url, {
-            headers: { 'Authorization': `Bearer ${accessToken}` },
-        });
+            const params = new URLSearchParams({
+                timeMin: timeMin.toISOString(),
+                timeMax: timeMax.toISOString(),
+                singleEvents: 'true',
+                orderBy: 'startTime',
+                maxResults: '250',
+            });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Calendar API error: ${response.status} ${errorText}`);
+            const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?${params}`;
+            const response = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                // Tag each event with its calendar source ID and label
+                const items = (data.items || []).map(item => ({
+                    ...item,
+                    _calendarId: calId,
+                    _calendarLabel: calLabel,
+                }));
+                allEvents = allEvents.concat(items);
+            } else {
+                log(`Could not fetch calendar ${calLabel}: ${response.status}`);
+            }
         }
-
-        const data = await response.json();
-        return data.items || [];
+        return allEvents;
     }
 
     // =========================================================================
     // Event Processing
     // =========================================================================
 
-    async processEvents(events, calendarCollection, data, { log, debug }) {
+    async processEvents(events, calendarCollection, data, calendarsMapping, { log, debug }) {
         let created = 0;
         let updated = 0;
         const changes = [];
@@ -382,7 +410,7 @@ class Plugin extends AppPlugin {
                 external_id: externalId,
                 title: event.summary || 'Untitled Event',
                 source: 'google',
-                calendar: 'primary', // TODO: support multiple calendars
+                calendar: event._calendarLabel || 'Primary',
                 status: status,
                 time_period: timePeriod,
                 location: event.location || '',

@@ -27,8 +27,38 @@ If you need your own OAuth endpoint:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `config` | Optional | `{"auth_url": "..."}` for custom endpoint |
+| `config` | Optional | See config options below |
 | `token` | Auto | Set by OAuth flow: `{"refresh_token": "...", "token_endpoint": "..."}` |
+
+## Multiple Calendars
+
+By default, only your primary calendar is synced. To add additional calendars (family, work, shared calendars), use the `calendars` config:
+
+```json
+{
+  "calendars": {
+    "family123abc@group.calendar.google.com": "Family",
+    "work456def@group.calendar.google.com": "Work"
+  }
+}
+```
+
+**Finding your Calendar ID:**
+1. Open Google Calendar
+2. Click the three dots next to your calendar → Settings
+3. Scroll to "Integrate calendar" → Calendar ID
+
+The primary calendar is always synced. The `calendars` config adds additional calendars.
+
+**Example with custom auth endpoint:**
+```json
+{
+  "auth_url": "https://your-endpoint/google?service=calendar",
+  "calendars": {
+    "family@group.calendar.google.com": "Family"
+  }
+}
+```
 
 ## Field Mappings
 
