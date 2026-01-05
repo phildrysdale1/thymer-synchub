@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.1';
+const VERSION = 'v1.0.2';
 /**
  * AgentHub - AI agents that live in your Thymer space
  *
