@@ -256,8 +256,8 @@ class Plugin extends AppPlugin {
                 // Check if needs update
                 const currentUpdatedAt = existingRecord.text('updated_at');
                 if (currentUpdatedAt !== issue.updated_at) {
-                    const oldExternalState = existingRecord.prop('external_state')?.choice();
-                    const stateChanged = oldExternalState !== issueData.external_state;
+                    const oldExternalState = existingRecord.prop('external_state')?.choice() || '';
+                    const stateChanged = oldExternalState.toLowerCase() !== issueData.external_state.toLowerCase();
 
                     await this.updateRecord(existingRecord, issueData);
                     updated++;
