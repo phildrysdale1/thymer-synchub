@@ -175,6 +175,86 @@ tasks:
           fi
         done
 
+  validate:versions:
+    desc: Check that JS and JSON versions match
+    silent: true
+    cmds:
+      - |
+        echo "🔍 Checking version consistency..."
+        echo ""
+        ERRORS=0
+
+        # Check plugins
+        for d in {{.PLUGINS_DIR}}/*/; do
+          name=$(basename "$d")
+          if [ "$name" = "_template" ]; then continue; fi
+
+          js_file="$d/plugin.js"
+          json_file="$d/plugin.json"
+
+          if [ -f "$js_file" ] && [ -f "$json_file" ]; then
+            js_ver=$(grep "^const VERSION = " "$js_file" | sed "s/.*= ['\"]v\?\([^'\"]*\)['\"].*/\1/")
+            json_ver=$(python3 -c "import json; print(json.load(open('$json_file')).get('version', 'MISSING'))" 2>/dev/null)
+
+            if [ "$json_ver" = "MISSING" ]; then
+              echo "⚠️  $name: JSON missing version field"
+              ERRORS=$((ERRORS+1))
+            elif [ "$js_ver" != "$json_ver" ]; then
+              echo "✗ $name: JS=$js_ver JSON=$json_ver"
+              ERRORS=$((ERRORS+1))
+            else
+              echo "✓ $name: $js_ver"
+            fi
+          fi
+        done
+
+        # Check collections
+        for d in {{.COLLECTIONS_DIR}}/*/; do
+          name=$(basename "$d")
+
+          js_file="$d/plugin.js"
+          json_file="$d/collection.json"
+
+          if [ -f "$js_file" ] && [ -f "$json_file" ]; then
+            js_ver=$(grep "^const VERSION = " "$js_file" | sed "s/.*= ['\"]v\?\([^'\"]*\)['\"].*/\1/")
+            json_ver=$(python3 -c "import json; print(json.load(open('$json_file')).get('version', 'MISSING'))" 2>/dev/null)
+
+            if [ "$json_ver" = "MISSING" ]; then
+              echo "⚠️  collections/$name: JSON missing version field"
+              ERRORS=$((ERRORS+1))
+            elif [ "$js_ver" != "$json_ver" ]; then
+              echo "✗ collections/$name: JS=$js_ver JSON=$json_ver"
+              ERRORS=$((ERRORS+1))
+            else
+              echo "✓ collections/$name: $js_ver"
+            fi
+          fi
+        done
+
+        # Check synchub
+        if [ -f "synchub/plugin.js" ] && [ -f "synchub/collection.json" ]; then
+          js_ver=$(grep "^const VERSION = " "synchub/plugin.js" | sed "s/.*= ['\"]v\?\([^'\"]*\)['\"].*/\1/")
+          json_ver=$(python3 -c "import json; print(json.load(open('synchub/collection.json')).get('version', 'MISSING'))" 2>/dev/null)
+
+          if [ "$json_ver" = "MISSING" ]; then
+            echo "⚠️  synchub: JSON missing version field"
+            ERRORS=$((ERRORS+1))
+          elif [ "$js_ver" != "$json_ver" ]; then
+            echo "✗ synchub: JS=$js_ver JSON=$json_ver"
+            ERRORS=$((ERRORS+1))
+          else
+            echo "✓ synchub: $js_ver"
+          fi
+        fi
+
+        echo ""
+        if [ $ERRORS -gt 0 ]; then
+          echo "❌ $ERRORS version mismatches found"
+          exit 1
+        else
+          echo "✅ All versions match!"
+        fi
+
   # =============================================================================
   # Release Management
   # =============================================================================
@@ -204,7 +284,8 @@ tasks:
         echo "✓ Updated VERSION file"
 
         # 2. Update version in all plugin .js files
-        echo "✓ Updating version in plugin files..."
+        echo "✓ Updating version in JS files..."
+        VERSION_NUM="${VERSION#v}"  # Strip 'v' prefix for JSON
 
         # Find all plugin.js files and add/update version constant
         for f in synchub/plugin.js \
@@ -228,21 +309,56 @@ tasks:
           fi
         done
 
-        # 3. Git commit
+        # 3. Update version in all JSON files
+        echo "✓ Updating version in JSON files..."
+
+        # Plugin JSON files
+        for f in {{.PLUGINS_DIR}}/*/plugin.json; do
+          if [ -f "$f" ] && ! echo "$f" | grep -q "_template"; then
+            python3 -c "
+        import json
+        with open('$f', 'r') as file:
+            data = json.load(file)
+        data['version'] = '$VERSION_NUM'
+        with open('$f', 'w') as file:
+            json.dump(data, file, indent=2)
+            file.write('\n')
+        "
+            echo "  ✓ $f"
+          fi
+        done
+
+        # Collection JSON files
+        for f in {{.COLLECTIONS_DIR}}/*/collection.json synchub/collection.json agenthub/collection.json habithub/collection.json; do
+          if [ -f "$f" ]; then
+            python3 -c "
+        import json
+        with open('$f', 'r') as file:
+            data = json.load(file)
+        data['version'] = '$VERSION_NUM'
+        with open('$f', 'w') as file:
+            json.dump(data, file, indent=4)
+            file.write('\n')
+        "
+            echo "  ✓ $f"
+          fi
+        done
+
+        # 4. Git commit
         echo ""
         git add -A
         git commit -m "Release $VERSION"
         echo "✓ Committed changes"
 
-        # 4. Git tag
+        # 5. Git tag
         git tag "$VERSION"
         echo "✓ Created tag $VERSION"
 
-        # 5. Push
+        # 6. Push
         git push origin master --tags
         echo "✓ Pushed to origin"
 
-        # 6. Create zip bundle
+        # 7. Create zip bundle
         ZIPNAME="thymer-synchub-$VERSION.zip"
         echo ""
         echo "📦 Creating $ZIPNAME..."
@@ -260,7 +376,7 @@ tasks:
 
         echo "✓ Created $ZIPNAME"
 
-        # 7. Create GitHub release
+        # 8. Create GitHub release
         echo ""
         echo "📢 Creating GitHub release..."
         gh release create "$VERSION" "$ZIPNAME" \

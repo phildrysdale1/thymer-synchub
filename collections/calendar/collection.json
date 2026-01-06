@@ -1,9 +1,15 @@
 {
     "ver": 1,
+    "version": "1.0.3",
     "name": "Calendar",
     "icon": "ti-calendar",
     "home": false,
-    "page_field_ids": ["title", "time_period", "calendar", "status"],
+    "page_field_ids": [
+        "title",
+        "time_period",
+        "calendar",
+        "status"
+    ],
     "item_name": "Event",
     "description": "Calendar events from any source",
     "show_sidebar_items": true,
@@ -49,11 +55,36 @@
             "read_only": true,
             "active": true,
             "choices": [
-                {"id": "google", "label": "Google", "color": "3", "active": true},
-                {"id": "outlook", "label": "Outlook", "color": "4", "active": true},
-                {"id": "proton", "label": "Proton", "color": "12", "active": true},
-                {"id": "ical", "label": "iCal", "color": "6", "active": true},
-                {"id": "manual", "label": "Manual", "color": "1", "active": true}
+                {
+                    "id": "google",
+                    "label": "Google",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "outlook",
+                    "label": "Outlook",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "proton",
+                    "label": "Proton",
+                    "color": "12",
+                    "active": true
+                },
+                {
+                    "id": "ical",
+                    "label": "iCal",
+                    "color": "6",
+                    "active": true
+                },
+                {
+                    "id": "manual",
+                    "label": "Manual",
+                    "color": "1",
+                    "active": true
+                }
             ]
         },
         {
@@ -64,10 +95,30 @@
             "read_only": false,
             "active": true,
             "choices": [
-                {"id": "primary", "label": "Primary", "color": "2", "active": true},
-                {"id": "work", "label": "Work", "color": "4", "active": true},
-                {"id": "personal", "label": "Personal", "color": "3", "active": true},
-                {"id": "family", "label": "Family", "color": "6", "active": true}
+                {
+                    "id": "primary",
+                    "label": "Primary",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "work",
+                    "label": "Work",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "personal",
+                    "label": "Personal",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "family",
+                    "label": "Family",
+                    "color": "6",
+                    "active": true
+                }
             ]
         },
         {
@@ -78,9 +129,24 @@
             "read_only": false,
             "active": true,
             "choices": [
-                {"id": "confirmed", "label": "Confirmed", "color": "2", "active": true},
-                {"id": "tentative", "label": "Tentative", "color": "3", "active": true},
-                {"id": "cancelled", "label": "Cancelled", "color": "5", "active": true}
+                {
+                    "id": "confirmed",
+                    "label": "Confirmed",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "tentative",
+                    "label": "Tentative",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "cancelled",
+                    "label": "Cancelled",
+                    "color": "5",
+                    "active": true
+                }
             ]
         },
         {
@@ -123,8 +189,18 @@
             "read_only": false,
             "active": true,
             "choices": [
-                {"id": "yes", "label": "Yes", "color": "2", "active": true},
-                {"id": "no", "label": "No", "color": "4", "active": true}
+                {
+                    "id": "yes",
+                    "label": "Yes",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "no",
+                    "label": "No",
+                    "color": "4",
+                    "active": true
+                }
             ]
         },
         {
@@ -135,9 +211,24 @@
             "read_only": false,
             "active": true,
             "choices": [
-                {"id": "high", "label": "High", "color": "5", "active": true},
-                {"id": "medium", "label": "Medium", "color": "3", "active": true},
-                {"id": "low", "label": "Low", "color": "2", "active": true}
+                {
+                    "id": "high",
+                    "label": "High",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "medium",
+                    "label": "Medium",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "low",
+                    "label": "Low",
+                    "color": "2",
+                    "active": true
+                }
             ]
         },
         {
@@ -148,9 +239,24 @@
             "read_only": false,
             "active": true,
             "choices": [
-                {"id": "productive", "label": "Productive", "color": "2", "active": true},
-                {"id": "neutral", "label": "Neutral", "color": "3", "active": true},
-                {"id": "waste", "label": "Waste", "color": "5", "active": true}
+                {
+                    "id": "productive",
+                    "label": "Productive",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "neutral",
+                    "label": "Neutral",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "waste",
+                    "label": "Waste",
+                    "color": "5",
+                    "active": true
+                }
             ]
         },
         {
@@ -161,8 +267,18 @@
             "read_only": false,
             "active": true,
             "choices": [
-                {"id": "yes", "label": "Yes", "color": "5", "active": true},
-                {"id": "no", "label": "No", "color": "4", "active": true}
+                {
+                    "id": "yes",
+                    "label": "Yes",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "no",
+                    "label": "No",
+                    "color": "4",
+                    "active": true
+                }
             ]
         },
         {
@@ -173,8 +289,40 @@
             "read_only": true,
             "active": false,
             "choices": [
-                {"id": "yes", "label": "Yes", "color": "2", "active": true},
-                {"id": "no", "label": "No", "color": "4", "active": true}
+                {
+                    "id": "yes",
+                    "label": "Yes",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "no",
+                    "label": "No",
+                    "color": "4",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-clock-2",
+            "id": "timing",
+            "label": "Timing",
+            "type": "choice",
+            "read_only": true,
+            "active": true,
+            "choices": [
+                {
+                    "id": "upcoming",
+                    "label": "Upcoming",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "past",
+                    "label": "Past",
+                    "color": "1",
+                    "active": true
+                }
             ]
         },
         {
@@ -196,7 +344,11 @@
     ],
     "sidebar_record_sort_dir": "asc",
     "sidebar_record_sort_field_id": "time_period",
-    "managed": {"fields": false, "views": false, "sidebar": false},
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
+    },
     "custom": {},
     "views": [
         {
@@ -205,7 +357,11 @@
             "icon": "",
             "label": "Calendar",
             "description": "Calendar view",
-            "field_ids": ["title", "time_period", "calendar"],
+            "field_ids": [
+                "title",
+                "time_period",
+                "calendar"
+            ],
             "type": "calendar",
             "read_only": false,
             "date_field_id": "time_period",
@@ -219,7 +375,14 @@
             "icon": "",
             "label": "Upcoming",
             "description": "Table of upcoming events",
-            "field_ids": ["title", "time_period", "location", "prep", "calendar"],
+            "field_ids": [
+                "title",
+                "time_period",
+                "location",
+                "prep",
+                "calendar",
+                "timing"
+            ],
             "type": "table",
             "read_only": false,
             "sort_dir": "asc",
@@ -232,7 +395,11 @@
             "icon": "",
             "label": "By Calendar",
             "description": "Events grouped by calendar",
-            "field_ids": ["title", "time_period", "status"],
+            "field_ids": [
+                "title",
+                "time_period",
+                "status"
+            ],
             "type": "board",
             "read_only": false,
             "group_by_field_id": "calendar",
@@ -246,7 +413,11 @@
             "icon": "",
             "label": "By Source",
             "description": "Events grouped by sync source",
-            "field_ids": ["title", "time_period", "calendar"],
+            "field_ids": [
+                "title",
+                "time_period",
+                "calendar"
+            ],
             "type": "board",
             "read_only": false,
             "group_by_field_id": "source",
@@ -260,7 +431,13 @@
             "icon": "",
             "label": "Review",
             "description": "Track meeting outcomes",
-            "field_ids": ["title", "time_period", "energy", "outcome", "followup"],
+            "field_ids": [
+                "title",
+                "time_period",
+                "energy",
+                "outcome",
+                "followup"
+            ],
             "type": "table",
             "read_only": false,
             "sort_dir": "desc",

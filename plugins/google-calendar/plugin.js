@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.2';
+const VERSION = 'v1.0.3';
 /**
  * Google Calendar Sync - App Plugin
  *
@@ -402,11 +402,19 @@ class Plugin extends AppPlugin {
                 .slice(0, 5) // Limit to first 5
                 .join(', ');
 
-            // Extract Google Meet link from conferenceData
-            const meetLink = event.conferenceData?.entryPoints?.find(e => e.entryPointType === 'video')?.uri || '';
+            // Extract meeting link: conferenceData first, then parse from description/location
+            let meetLink = event.conferenceData?.entryPoints?.find(e => e.entryPointType === 'video')?.uri || '';
+
+            // If no conferenceData link, try parsing from description/location (Teams, Zoom, etc.)
+            if (!meetLink && window.calendarUtils?.parseMeetingLink) {
+                meetLink = window.calendarUtils.parseMeetingLink(event.description, event.location) || '';
+            }
 
             // Map Google Calendar status to our status field
             const status = event.status === 'tentative' ? 'tentative' : 'confirmed';
+
+            // Determine if event is past (for timing field)
+            const timing = this.isEventPast(event, isAllDay) ? 'past' : 'upcoming';
 
             const eventData = {
                 external_id: externalId,
@@ -414,6 +422,7 @@ class Plugin extends AppPlugin {
                 source: 'google',
                 calendar: event._calendarLabel || 'Primary',
                 status: status,
+                timing: timing,
                 time_period: timePeriod,
                 location: event.location || '',
                 attendees: attendees,
@@ -553,6 +562,25 @@ class Plugin extends AppPlugin {
         return startDt.value();
     }
 
+    /**
+     * Determine if event is in the past (for timing field).
+     */
+    isEventPast(event, isAllDay) {
+        const now = new Date();
+        let endTime;
+
+        if (isAllDay) {
+            // All-day events end at midnight of the end date
+            const endDate = event.end?.date ? new Date(event.end.date) : new Date(event.start.date);
+            endTime = endDate;
+        } else {
+            // Timed events: check the end time
+            endTime = event.end?.dateTime ? new Date(event.end.dateTime) : new Date(event.start.dateTime);
+        }
+
+        return now > endTime;
+    }
+
     // =========================================================================
     // Record Management
     // =========================================================================
@@ -593,6 +621,7 @@ class Plugin extends AppPlugin {
         this.setField(record, 'source', data.source);
         this.setField(record, 'calendar', data.calendar);
         this.setField(record, 'status', data.status);
+        this.setField(record, 'timing', data.timing);
         this.setField(record, 'time_period', data.time_period);
         this.setField(record, 'location', data.location);
         this.setField(record, 'attendees', data.attendees);
@@ -610,31 +639,39 @@ class Plugin extends AppPlugin {
         // Compare title
         if (existingRecord.getName() !== newData.title) return true;
 
-        // Compare key fields
-        const fieldsToCompare = ['location', 'status', 'calendar', 'attendees', 'meet_link'];
-        for (const field of fieldsToCompare) {
+        // Compare text fields (simple string comparison)
+        const textFields = ['location', 'attendees', 'meet_link'];
+        for (const field of textFields) {
             const current = existingRecord.text(field) || '';
             const newVal = newData[field] || '';
             if (current !== newVal) return true;
         }
 
-        // Compare time_period (stored as Thymer DateTime range)
-        const currentPeriod = existingRecord.prop('time_period');
-        if (currentPeriod) {
-            const currentStart = currentPeriod.date();
-            const currentEnd = currentPeriod.endDate?.();
+        // Compare choice fields (need to compare by choice ID, case-insensitive)
+        const choiceFields = ['status', 'calendar'];
+        for (const field of choiceFields) {
+            const currentId = existingRecord.prop(field)?.choice() || '';
+            const newVal = (newData[field] || '').toLowerCase();
+            if (currentId.toLowerCase() !== newVal) return true;
+        }
 
-            // Compare start times
-            if (currentStart && newData.start) {
-                const newStart = new Date(newData.start);
-                if (currentStart.getTime() !== newStart.getTime()) return true;
-            }
+        // Compare time_period using stored datetime value
+        const currentDt = existingRecord.prop('time_period')?.datetime();
+        if (currentDt && newData.time_period) {
+            const currentVal = currentDt.value();
+            const newVal = newData.time_period;
 
-            // Compare end times
-            if (currentEnd && newData.end) {
-                const newEnd = new Date(newData.end);
-                if (currentEnd.getTime() !== newEnd.getTime()) return true;
-            }
+            // Compare date (YYYYMMDD format)
+            if (currentVal?.d !== newVal?.d) return true;
+
+            // Compare time
+            if (currentVal?.t?.t !== newVal?.t?.t) return true;
+
+            // Compare range end date
+            if (currentVal?.r?.d !== newVal?.r?.d) return true;
+
+            // Compare range end time
+            if (currentVal?.r?.t?.t !== newVal?.r?.t?.t) return true;
         }
 
         // No meaningful changes detected

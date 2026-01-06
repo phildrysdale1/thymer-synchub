@@ -17,5 +17,6 @@
     "sidebar": false
   },
   "custom": {},
-  "home": false
+  "home": false,
+  "version": "1.0.3"
 }

@@ -1,5 +1,6 @@
 {
-    "name": "Telegram Sync",
-    "icon": "ti-plane",
-    "description": "Capture messages from your Telegram bot with smart routing to Journal, Captures, or Issues"
+  "name": "Telegram Sync",
+  "icon": "ti-plane",
+  "description": "Capture messages from your Telegram bot with smart routing to Journal, Captures, or Issues",
+  "version": "1.0.3"
 }

@@ -10,7 +10,7 @@
  * - State stored in Thymer, not IndexedDB
  */
 
-const VERSION = 'v1.0.2';
+const VERSION = 'v1.0.3';
 
 // Sync lock configuration (prevents duplicate syncs across multiple Thymer instances)
 const LOCK_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes - stale lock threshold

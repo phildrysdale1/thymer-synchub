@@ -1,509 +1,525 @@
 {
-  "ver": 1,
-  "name": "HabitHub",
-  "icon": "ti-flame",
-  "home": false,
-  "page_field_ids": [
-    "title",
-    "emoji",
-    "kind",
-    "schedule",
-    "target",
-    "command",
-    "value_type",
-    "weekly_target",
-    "unit",
-    "goal_value",
-    "goal_date",
-    "enabled"
-  ],
-  "item_name": "Habit",
-  "description": "Track habits and break vices with journal-powered logging",
-  "show_sidebar_items": true,
-  "show_cmdpal_items": true,
-  "fields": [
-    {
-      "icon": "ti-abc",
-      "id": "title",
-      "label": "Name",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-command",
-      "id": "command",
-      "label": "Command",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-mood-smile",
-      "id": "emoji",
-      "label": "Emoji",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "choice",
-      "choices": [
+    "ver": 1,
+    "name": "HabitHub",
+    "icon": "ti-flame",
+    "home": false,
+    "page_field_ids": [
+        "title",
+        "emoji",
+        "kind",
+        "schedule",
+        "target",
+        "command",
+        "value_type",
+        "weekly_target",
+        "unit",
+        "goal_value",
+        "goal_date",
+        "enabled"
+    ],
+    "item_name": "Habit",
+    "description": "Track habits and break vices with journal-powered logging",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
         {
-          "id": "running",
-          "label": "🏃 Running",
-          "color": "2",
-          "active": true
+            "icon": "ti-abc",
+            "id": "title",
+            "label": "Name",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
         },
         {
-          "id": "gym",
-          "label": "🏋️ Gym",
-          "color": "2",
-          "active": true
+            "icon": "ti-command",
+            "id": "command",
+            "label": "Command",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
         },
         {
-          "id": "reading",
-          "label": "📚 Reading",
-          "color": "2",
-          "active": true
+            "icon": "ti-mood-smile",
+            "id": "emoji",
+            "label": "Emoji",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "running",
+                    "label": "\ud83c\udfc3 Running",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "gym",
+                    "label": "\ud83c\udfcb\ufe0f Gym",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "reading",
+                    "label": "\ud83d\udcda Reading",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "meditation",
+                    "label": "\ud83e\uddd8 Meditation",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "water",
+                    "label": "\ud83d\udca7 Water",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "sleep",
+                    "label": "\ud83d\ude34 Sleep",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "writing",
+                    "label": "\u270d\ufe0f Writing",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "coding",
+                    "label": "\ud83d\udcbb Coding",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "music",
+                    "label": "\ud83c\udfb5 Music",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "language",
+                    "label": "\ud83d\udde3\ufe0f Language",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "cooking",
+                    "label": "\ud83c\udf73 Cooking",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "walking",
+                    "label": "\ud83d\udeb6 Walking",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "cycling",
+                    "label": "\ud83d\udeb4 Cycling",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "yoga",
+                    "label": "\ud83e\uddd8\u200d\u2640\ufe0f Yoga",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "stretching",
+                    "label": "\ud83e\udd38 Stretching",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "journaling",
+                    "label": "\ud83d\udcd4 Journaling",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "cleaning",
+                    "label": "\ud83e\uddf9 Cleaning",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "vitamins",
+                    "label": "\ud83d\udc8a Vitamins",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "flossing",
+                    "label": "\ud83e\uddb7 Flossing",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "skincare",
+                    "label": "\ud83e\uddf4 Skincare",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "smoking",
+                    "label": "\ud83d\udeac Smoking",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "alcohol",
+                    "label": "\ud83c\udf7a Alcohol",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "coffee",
+                    "label": "\u2615 Coffee",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "sugar",
+                    "label": "\ud83c\udf6c Sugar",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "screentime",
+                    "label": "\ud83d\udcf1 Screen Time",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "socialmedia",
+                    "label": "\ud83d\udcf2 Social Media",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "fastfood",
+                    "label": "\ud83c\udf54 Fast Food",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "snacking",
+                    "label": "\ud83c\udf7f Snacking",
+                    "color": "5",
+                    "active": true
+                },
+                {
+                    "id": "custom",
+                    "label": "\u2b50 Custom",
+                    "color": "4",
+                    "active": true
+                }
+            ]
         },
         {
-          "id": "meditation",
-          "label": "🧘 Meditation",
-          "color": "2",
-          "active": true
+            "icon": "ti-arrows-split",
+            "id": "kind",
+            "label": "Kind",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "habit",
+                    "label": "Habit",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "vice",
+                    "label": "Vice",
+                    "color": "5",
+                    "active": true
+                }
+            ]
         },
         {
-          "id": "water",
-          "label": "💧 Water",
-          "color": "2",
-          "active": true
+            "icon": "ti-ruler-2",
+            "id": "value_type",
+            "label": "Value Type",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "boolean",
+                    "label": "Boolean",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "duration",
+                    "label": "Duration",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "count",
+                    "label": "Count",
+                    "color": "11",
+                    "active": true
+                }
+            ]
         },
         {
-          "id": "sleep",
-          "label": "😴 Sleep",
-          "color": "2",
-          "active": true
+            "icon": "ti-calendar-repeat",
+            "id": "schedule",
+            "label": "Schedule",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "daily",
+                    "label": "Daily",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "weekdays",
+                    "label": "Weekdays",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "weekends",
+                    "label": "Weekends",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "weekly",
+                    "label": "Weekly",
+                    "color": "11",
+                    "active": true
+                }
+            ]
         },
         {
-          "id": "writing",
-          "label": "✍️ Writing",
-          "color": "2",
-          "active": true
+            "icon": "ti-hash",
+            "id": "weekly_target",
+            "label": "Weekly Target",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "number"
         },
         {
-          "id": "coding",
-          "label": "💻 Coding",
-          "color": "2",
-          "active": true
+            "icon": "ti-target",
+            "id": "target",
+            "label": "Daily Target",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "number"
         },
         {
-          "id": "music",
-          "label": "🎵 Music",
-          "color": "2",
-          "active": true
+            "icon": "ti-abc",
+            "id": "unit",
+            "label": "Unit",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
         },
         {
-          "id": "language",
-          "label": "🗣️ Language",
-          "color": "2",
-          "active": true
+            "icon": "ti-vocabulary",
+            "id": "verb",
+            "label": "Verb",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
         },
         {
-          "id": "cooking",
-          "label": "🍳 Cooking",
-          "color": "2",
-          "active": true
+            "icon": "ti-trophy",
+            "id": "goal_value",
+            "label": "Goal Value",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "number"
         },
         {
-          "id": "walking",
-          "label": "🚶 Walking",
-          "color": "2",
-          "active": true
+            "icon": "ti-calendar-event",
+            "id": "goal_date",
+            "label": "Goal Date",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "datetime"
         },
         {
-          "id": "cycling",
-          "label": "🚴 Cycling",
-          "color": "2",
-          "active": true
+            "icon": "ti-check",
+            "id": "enabled",
+            "label": "Enabled",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "yes",
+                    "label": "Yes",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "no",
+                    "label": "No",
+                    "color": "9",
+                    "active": true
+                }
+            ]
         },
         {
-          "id": "yoga",
-          "label": "🧘‍♀️ Yoga",
-          "color": "2",
-          "active": true
+            "icon": "ti-photo",
+            "id": "banner",
+            "label": "Banner",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "banner"
         },
         {
-          "id": "stretching",
-          "label": "🤸 Stretching",
-          "color": "2",
-          "active": true
+            "icon": "ti-clock-edit",
+            "id": "updated_at",
+            "label": "Modified",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
         },
         {
-          "id": "journaling",
-          "label": "📔 Journaling",
-          "color": "2",
-          "active": true
+            "icon": "ti-clock-plus",
+            "id": "created_at",
+            "label": "Created",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
         },
         {
-          "id": "cleaning",
-          "label": "🧹 Cleaning",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "vitamins",
-          "label": "💊 Vitamins",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "flossing",
-          "label": "🦷 Flossing",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "skincare",
-          "label": "🧴 Skincare",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "smoking",
-          "label": "🚬 Smoking",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "alcohol",
-          "label": "🍺 Alcohol",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "coffee",
-          "label": "☕ Coffee",
-          "color": "4",
-          "active": true
-        },
-        {
-          "id": "sugar",
-          "label": "🍬 Sugar",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "screentime",
-          "label": "📱 Screen Time",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "socialmedia",
-          "label": "📲 Social Media",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "fastfood",
-          "label": "🍔 Fast Food",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "snacking",
-          "label": "🍿 Snacking",
-          "color": "5",
-          "active": true
-        },
-        {
-          "id": "custom",
-          "label": "⭐ Custom",
-          "color": "4",
-          "active": true
+            "icon": "ti-align-left",
+            "id": "icon",
+            "label": "Icon",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "text"
         }
-      ]
+    ],
+    "sidebar_record_sort_dir": "asc",
+    "sidebar_record_sort_field_id": "title",
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
     },
-    {
-      "icon": "ti-arrows-split",
-      "id": "kind",
-      "label": "Kind",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "choice",
-      "choices": [
+    "custom": {},
+    "views": [
         {
-          "id": "habit",
-          "label": "Habit",
-          "color": "2",
-          "active": true
+            "id": "VHABIT000",
+            "shown": true,
+            "icon": "ti-dashboard",
+            "label": "Dashboard",
+            "description": "Quick log buttons, today's checklist, weekly habit cards",
+            "field_ids": [],
+            "type": "custom",
+            "read_only": false,
+            "group_by_field_id": null,
+            "sort_dir": "asc",
+            "sort_field_id": "title",
+            "opts": {}
         },
         {
-          "id": "vice",
-          "label": "Vice",
-          "color": "5",
-          "active": true
+            "id": "VHABIT004",
+            "shown": true,
+            "icon": "ti-chart-line",
+            "label": "Analysis",
+            "description": "Trends, graphs, and heatmaps with period toggle",
+            "field_ids": [],
+            "type": "custom",
+            "read_only": false,
+            "group_by_field_id": null,
+            "sort_dir": "asc",
+            "sort_field_id": "title",
+            "opts": {}
+        },
+        {
+            "id": "VHABIT001",
+            "shown": true,
+            "icon": "",
+            "label": "All Habits",
+            "description": "",
+            "field_ids": [
+                "title",
+                "emoji",
+                "kind",
+                "schedule",
+                "target"
+            ],
+            "type": "table",
+            "read_only": false,
+            "group_by_field_id": null,
+            "sort_dir": "asc",
+            "sort_field_id": "title",
+            "opts": {}
+        },
+        {
+            "id": "VHABIT002",
+            "shown": true,
+            "icon": "",
+            "label": "By Kind",
+            "description": "",
+            "field_ids": [
+                "title",
+                "emoji",
+                "schedule"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "kind",
+            "sort_dir": "asc",
+            "sort_field_id": "title",
+            "opts": {}
+        },
+        {
+            "id": "VHABIT003",
+            "shown": true,
+            "icon": "",
+            "label": "By Schedule",
+            "description": "",
+            "field_ids": [
+                "title",
+                "emoji",
+                "kind",
+                "target"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "schedule",
+            "sort_dir": "asc",
+            "sort_field_id": "title",
+            "opts": {}
         }
-      ]
-    },
-    {
-      "icon": "ti-ruler-2",
-      "id": "value_type",
-      "label": "Value Type",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "boolean",
-          "label": "Boolean",
-          "color": "4",
-          "active": true
-        },
-        {
-          "id": "duration",
-          "label": "Duration",
-          "color": "3",
-          "active": true
-        },
-        {
-          "id": "count",
-          "label": "Count",
-          "color": "11",
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-calendar-repeat",
-      "id": "schedule",
-      "label": "Schedule",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "daily",
-          "label": "Daily",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "weekdays",
-          "label": "Weekdays",
-          "color": "3",
-          "active": true
-        },
-        {
-          "id": "weekends",
-          "label": "Weekends",
-          "color": "4",
-          "active": true
-        },
-        {
-          "id": "weekly",
-          "label": "Weekly",
-          "color": "11",
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-hash",
-      "id": "weekly_target",
-      "label": "Weekly Target",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "number"
-    },
-    {
-      "icon": "ti-target",
-      "id": "target",
-      "label": "Daily Target",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "number"
-    },
-    {
-      "icon": "ti-abc",
-      "id": "unit",
-      "label": "Unit",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-vocabulary",
-      "id": "verb",
-      "label": "Verb",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-trophy",
-      "id": "goal_value",
-      "label": "Goal Value",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "number"
-    },
-    {
-      "icon": "ti-calendar-event",
-      "id": "goal_date",
-      "label": "Goal Date",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "datetime"
-    },
-    {
-      "icon": "ti-check",
-      "id": "enabled",
-      "label": "Enabled",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "yes",
-          "label": "Yes",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "no",
-          "label": "No",
-          "color": "9",
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-photo",
-      "id": "banner",
-      "label": "Banner",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "banner"
-    },
-    {
-      "icon": "ti-clock-edit",
-      "id": "updated_at",
-      "label": "Modified",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "datetime"
-    },
-    {
-      "icon": "ti-clock-plus",
-      "id": "created_at",
-      "label": "Created",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "datetime"
-    },
-    {
-      "icon": "ti-align-left",
-      "id": "icon",
-      "label": "Icon",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "text"
-    }
-  ],
-  "sidebar_record_sort_dir": "asc",
-  "sidebar_record_sort_field_id": "title",
-  "managed": {
-    "fields": false,
-    "views": false,
-    "sidebar": false
-  },
-  "custom": {},
-  "views": [
-    {
-      "id": "VHABIT000",
-      "shown": true,
-      "icon": "ti-dashboard",
-      "label": "Dashboard",
-      "description": "Quick log buttons, today's checklist, weekly habit cards",
-      "field_ids": [],
-      "type": "custom",
-      "read_only": false,
-      "group_by_field_id": null,
-      "sort_dir": "asc",
-      "sort_field_id": "title",
-      "opts": {}
-    },
-    {
-      "id": "VHABIT004",
-      "shown": true,
-      "icon": "ti-chart-line",
-      "label": "Analysis",
-      "description": "Trends, graphs, and heatmaps with period toggle",
-      "field_ids": [],
-      "type": "custom",
-      "read_only": false,
-      "group_by_field_id": null,
-      "sort_dir": "asc",
-      "sort_field_id": "title",
-      "opts": {}
-    },
-    {
-      "id": "VHABIT001",
-      "shown": true,
-      "icon": "",
-      "label": "All Habits",
-      "description": "",
-      "field_ids": ["title", "emoji", "kind", "schedule", "target"],
-      "type": "table",
-      "read_only": false,
-      "group_by_field_id": null,
-      "sort_dir": "asc",
-      "sort_field_id": "title",
-      "opts": {}
-    },
-    {
-      "id": "VHABIT002",
-      "shown": true,
-      "icon": "",
-      "label": "By Kind",
-      "description": "",
-      "field_ids": ["title", "emoji", "schedule"],
-      "type": "board",
-      "read_only": false,
-      "group_by_field_id": "kind",
-      "sort_dir": "asc",
-      "sort_field_id": "title",
-      "opts": {}
-    },
-    {
-      "id": "VHABIT003",
-      "shown": true,
-      "icon": "",
-      "label": "By Schedule",
-      "description": "",
-      "field_ids": ["title", "emoji", "kind", "target"],
-      "type": "board",
-      "read_only": false,
-      "group_by_field_id": "schedule",
-      "sort_dir": "asc",
-      "sort_field_id": "title",
-      "opts": {}
-    }
-  ]
+    ],
+    "version": "1.0.3"
 }

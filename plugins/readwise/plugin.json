@@ -1,5 +1,6 @@
 {
-    "name": "Readwise Sync",
-    "icon": "ti-books",
-    "description": "Syncs documents and highlights from Readwise Reader into Thymer"
+  "name": "Readwise Sync",
+  "icon": "ti-books",
+  "description": "Syncs documents and highlights from Readwise Reader into Thymer",
+  "version": "1.0.3"
 }

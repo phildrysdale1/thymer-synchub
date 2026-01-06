@@ -1,5 +1,6 @@
 {
   "name": "Google Contacts Sync",
   "icon": "ti-wallet",
-  "description": "Syncs contacts from Google to People collection"
+  "description": "Syncs contacts from Google to People collection",
+  "version": "1.0.3"
 }

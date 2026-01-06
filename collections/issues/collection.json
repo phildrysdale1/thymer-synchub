@@ -1,358 +1,386 @@
 {
-  "ver": 1,
-  "name": "Issues",
-  "icon": "ti-bug",
-  "home": false,
-  "page_field_ids": ["title", "source", "repo", "number", "status", "external_state", "url"],
-  "item_name": "Issue",
-  "description": "Issues & PRs from any source",
-  "show_sidebar_items": true,
-  "show_cmdpal_items": true,
-  "fields": [
-    {
-      "icon": "ti-id",
-      "id": "external_id",
-      "label": "External ID",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-hash",
-      "id": "content_hash",
-      "label": "Content Hash",
-      "many": false,
-      "read_only": true,
-      "active": false,
-      "type": "text"
-    },
-    {
-      "icon": "ti-abc",
-      "id": "title",
-      "label": "Title",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-anchor",
-      "id": "source",
-      "label": "Source",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "github",
-          "label": "GitHub",
-          "color": "9",
-          "active": true
-        },
-        {
-          "id": "gitlab",
-          "label": "GitLab",
-          "color": "4",
-          "active": true
-        },
-        {
-          "id": "linear",
-          "label": "Linear",
-          "color": "12",
-          "active": true
-        },
-        {
-          "id": "jira",
-          "label": "Jira",
-          "color": "3",
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-folder",
-      "id": "repo",
-      "label": "Repository",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-briefcase",
-      "id": "project",
-      "label": "Project",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "thymer_plugins",
-          "label": "Thymer Plugins",
-          "color": "9",
-          "active": true
-        },
-        {
-          "id": "v4",
-          "label": "V4",
-          "color": "4",
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-hash",
-      "id": "number",
-      "label": "Number",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "number"
-    },
-    {
-      "icon": "ti-tag",
-      "id": "type",
-      "label": "Type",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "issue",
-          "label": "Issue",
-          "color": "2",
-          "active": true
-        },
-        {
-          "id": "pull_request",
-          "label": "PR",
-          "color": "4",
-          "active": true
-        },
-        {
-          "id": "task",
-          "label": "Task",
-          "color": "3",
-          "active": true
-        },
-        {
-          "id": "bug",
-          "label": "Bug",
-          "color": "0",
-          "active": true
-        },
-        {
-          "id": "feature",
-          "label": "Feature",
-          "color": "11",
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-circle",
-      "id": "external_state",
-      "label": "External State",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "open",
-          "label": "Open",
-          "color": 2,
-          "active": true
-        },
-        {
-          "id": "closed",
-          "label": "Closed",
-          "color": 9,
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-layout-kanban",
-      "id": "status",
-      "label": "Status",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "choice",
-      "choices": [
-        {
-          "id": "inbox",
-          "label": "Inbox",
-          "color": 9,
-          "active": true
-        },
-        {
-          "id": "backlog",
-          "label": "Backlog",
-          "color": 1,
-          "active": true
-        },
-        {
-          "id": "next",
-          "label": "Next",
-          "color": 3,
-          "active": true
-        },
-        {
-          "id": "doing",
-          "label": "Doing",
-          "color": 11,
-          "active": true
-        },
-        {
-          "id": "done",
-          "label": "Done",
-          "color": 2,
-          "active": true
-        },
-        {
-          "id": "cancelled",
-          "label": "Cancelled",
-          "color": 8,
-          "active": true
-        }
-      ]
-    },
-    {
-      "icon": "ti-user",
-      "id": "author",
-      "label": "Author",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-user-check",
-      "id": "assignee",
-      "label": "Assignee",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "text"
-    },
-    {
-      "icon": "ti-link",
-      "id": "url",
-      "label": "URL",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "url"
-    },
-    {
-      "icon": "ti-clock-edit",
-      "id": "updated_at",
-      "label": "Modified",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "datetime"
-    },
-    {
-      "icon": "ti-clock-plus",
-      "id": "created_at",
-      "label": "Created",
-      "many": false,
-      "read_only": true,
-      "active": true,
-      "type": "datetime"
-    },
-    {
-      "icon": "ti-photo",
-      "id": "banner",
-      "label": "Banner",
-      "many": false,
-      "read_only": false,
-      "active": true,
-      "type": "banner"
-    }
-  ],
-  "sidebar_record_sort_dir": "desc",
-  "sidebar_record_sort_field_id": "updated_at",
-  "managed": {
-    "fields": false,
-    "views": false,
-    "sidebar": false
-  },
-  "custom": {},
-  "views": [
-    {
-      "id": "VISSUES001",
-      "shown": true,
-      "icon": "",
-      "label": "By Status",
-      "description": "",
-      "field_ids": ["title", "source", "repo", "number", "type", "external_state"],
-      "type": "board",
-      "read_only": false,
-      "group_by_field_id": "status",
-      "sort_dir": "desc",
-      "sort_field_id": "updated_at",
-      "opts": {}
-    },
-    {
-      "id": "VISSUES002",
-      "shown": true,
-      "icon": "",
-      "label": "By Source",
-      "description": "",
-      "field_ids": ["title", "repo", "number", "status", "type"],
-      "type": "board",
-      "read_only": false,
-      "group_by_field_id": "source",
-      "sort_dir": "desc",
-      "sort_field_id": "updated_at",
-      "opts": {}
-    },
-    {
-      "id": "VISSUES004",
-      "shown": true,
-      "icon": "",
-      "label": "By Project",
-      "description": "",
-      "field_ids": ["title", "repo", "number", "status", "type"],
-      "type": "board",
-      "read_only": false,
-      "group_by_field_id": "project",
-      "sort_dir": "desc",
-      "sort_field_id": "updated_at",
-      "opts": {}
-    },
-    {
-      "id": "VISSUES003",
-      "shown": true,
-      "icon": "",
-      "label": "All Issues",
-      "description": "",
-      "field_ids": [
+    "ver": 1,
+    "name": "Issues",
+    "icon": "ti-bug",
+    "home": false,
+    "page_field_ids": [
         "title",
         "source",
-        "project",
         "repo",
         "number",
-        "type",
         "status",
         "external_state",
-        "author",
-        "updated_at"
-      ],
-      "type": "table",
-      "read_only": false,
-      "group_by_field_id": null,
-      "sort_dir": "desc",
-      "sort_field_id": "updated_at",
-      "opts": {}
-    }
-  ]
+        "url"
+    ],
+    "item_name": "Issue",
+    "description": "Issues & PRs from any source",
+    "show_sidebar_items": true,
+    "show_cmdpal_items": true,
+    "fields": [
+        {
+            "icon": "ti-id",
+            "id": "external_id",
+            "label": "External ID",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-hash",
+            "id": "content_hash",
+            "label": "Content Hash",
+            "many": false,
+            "read_only": true,
+            "active": false,
+            "type": "text"
+        },
+        {
+            "icon": "ti-abc",
+            "id": "title",
+            "label": "Title",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-anchor",
+            "id": "source",
+            "label": "Source",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "github",
+                    "label": "GitHub",
+                    "color": "9",
+                    "active": true
+                },
+                {
+                    "id": "gitlab",
+                    "label": "GitLab",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "linear",
+                    "label": "Linear",
+                    "color": "12",
+                    "active": true
+                },
+                {
+                    "id": "jira",
+                    "label": "Jira",
+                    "color": "3",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-folder",
+            "id": "repo",
+            "label": "Repository",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-briefcase",
+            "id": "project",
+            "label": "Project",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "thymer_plugins",
+                    "label": "Thymer Plugins",
+                    "color": "9",
+                    "active": true
+                },
+                {
+                    "id": "v4",
+                    "label": "V4",
+                    "color": "4",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-hash",
+            "id": "number",
+            "label": "Number",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "number"
+        },
+        {
+            "icon": "ti-tag",
+            "id": "type",
+            "label": "Type",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "issue",
+                    "label": "Issue",
+                    "color": "2",
+                    "active": true
+                },
+                {
+                    "id": "pull_request",
+                    "label": "PR",
+                    "color": "4",
+                    "active": true
+                },
+                {
+                    "id": "task",
+                    "label": "Task",
+                    "color": "3",
+                    "active": true
+                },
+                {
+                    "id": "bug",
+                    "label": "Bug",
+                    "color": "0",
+                    "active": true
+                },
+                {
+                    "id": "feature",
+                    "label": "Feature",
+                    "color": "11",
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-circle",
+            "id": "external_state",
+            "label": "External State",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "open",
+                    "label": "Open",
+                    "color": 2,
+                    "active": true
+                },
+                {
+                    "id": "closed",
+                    "label": "Closed",
+                    "color": 9,
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-layout-kanban",
+            "id": "status",
+            "label": "Status",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "choice",
+            "choices": [
+                {
+                    "id": "inbox",
+                    "label": "Inbox",
+                    "color": 9,
+                    "active": true
+                },
+                {
+                    "id": "backlog",
+                    "label": "Backlog",
+                    "color": 1,
+                    "active": true
+                },
+                {
+                    "id": "next",
+                    "label": "Next",
+                    "color": 3,
+                    "active": true
+                },
+                {
+                    "id": "doing",
+                    "label": "Doing",
+                    "color": 11,
+                    "active": true
+                },
+                {
+                    "id": "done",
+                    "label": "Done",
+                    "color": 2,
+                    "active": true
+                },
+                {
+                    "id": "cancelled",
+                    "label": "Cancelled",
+                    "color": 8,
+                    "active": true
+                }
+            ]
+        },
+        {
+            "icon": "ti-user",
+            "id": "author",
+            "label": "Author",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-user-check",
+            "id": "assignee",
+            "label": "Assignee",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "text"
+        },
+        {
+            "icon": "ti-link",
+            "id": "url",
+            "label": "URL",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "url"
+        },
+        {
+            "icon": "ti-clock-edit",
+            "id": "updated_at",
+            "label": "Modified",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
+        },
+        {
+            "icon": "ti-clock-plus",
+            "id": "created_at",
+            "label": "Created",
+            "many": false,
+            "read_only": true,
+            "active": true,
+            "type": "datetime"
+        },
+        {
+            "icon": "ti-photo",
+            "id": "banner",
+            "label": "Banner",
+            "many": false,
+            "read_only": false,
+            "active": true,
+            "type": "banner"
+        }
+    ],
+    "sidebar_record_sort_dir": "desc",
+    "sidebar_record_sort_field_id": "updated_at",
+    "managed": {
+        "fields": false,
+        "views": false,
+        "sidebar": false
+    },
+    "custom": {},
+    "views": [
+        {
+            "id": "VISSUES001",
+            "shown": true,
+            "icon": "",
+            "label": "By Status",
+            "description": "",
+            "field_ids": [
+                "title",
+                "source",
+                "repo",
+                "number",
+                "type",
+                "external_state"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "status",
+            "sort_dir": "desc",
+            "sort_field_id": "updated_at",
+            "opts": {}
+        },
+        {
+            "id": "VISSUES002",
+            "shown": true,
+            "icon": "",
+            "label": "By Source",
+            "description": "",
+            "field_ids": [
+                "title",
+                "repo",
+                "number",
+                "status",
+                "type"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "source",
+            "sort_dir": "desc",
+            "sort_field_id": "updated_at",
+            "opts": {}
+        },
+        {
+            "id": "VISSUES004",
+            "shown": true,
+            "icon": "",
+            "label": "By Project",
+            "description": "",
+            "field_ids": [
+                "title",
+                "repo",
+                "number",
+                "status",
+                "type"
+            ],
+            "type": "board",
+            "read_only": false,
+            "group_by_field_id": "project",
+            "sort_dir": "desc",
+            "sort_field_id": "updated_at",
+            "opts": {}
+        },
+        {
+            "id": "VISSUES003",
+            "shown": true,
+            "icon": "",
+            "label": "All Issues",
+            "description": "",
+            "field_ids": [
+                "title",
+                "source",
+                "project",
+                "repo",
+                "number",
+                "type",
+                "status",
+                "external_state",
+                "author",
+                "updated_at"
+            ],
+            "type": "table",
+            "read_only": false,
+            "group_by_field_id": null,
+            "sort_dir": "desc",
+            "sort_field_id": "updated_at",
+            "opts": {}
+        }
+    ],
+    "version": "1.0.3"
 }

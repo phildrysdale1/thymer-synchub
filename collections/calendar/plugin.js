@@ -1,10 +1,56 @@
-const VERSION = 'v1.0.2';
+const VERSION = 'v1.0.3';
 /**
  * Calendar Collection - Collection Plugin
  *
  * Provides query tools for the Calendar collection.
  * Works with any source: Google, Outlook, Proton, iCal, etc.
  */
+
+// Meeting URL patterns - order matters (more specific first)
+const MEETING_PATTERNS = [
+    // Microsoft Teams
+    /https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^\s<>"]+/i,
+    // Google Meet
+    /https:\/\/meet\.google\.com\/[a-z0-9-]+/i,
+    // Zoom (various subdomains)
+    /https:\/\/[a-z0-9-]*\.?zoom\.us\/j\/[^\s<>"]+/i,
+    // Webex
+    /https:\/\/[a-z0-9-]+\.webex\.com\/[^\s<>"]+/i,
+    // Generic fallback - any https URL (last resort)
+    // /https:\/\/[^\s<>"]+/i,
+];
+
+/**
+ * Extract meeting link from text (description, location, etc.)
+ * Tries known meeting providers first, then falls back to generic URLs.
+ *
+ * @param {...string} texts - Text fields to search (description, location, etc.)
+ * @returns {string|null} - Meeting URL or null
+ */
+function parseMeetingLink(...texts) {
+    const combined = texts.filter(Boolean).join(' ');
+    if (!combined) return null;
+
+    // Try each pattern in order
+    for (const pattern of MEETING_PATTERNS) {
+        const match = combined.match(pattern);
+        if (match) {
+            // Clean up the URL (remove trailing punctuation, etc.)
+            let url = match[0];
+            // Remove trailing > or " that might be captured
+            url = url.replace(/[>"]+$/, '');
+            return url;
+        }
+    }
+
+    return null;
+}
+
+// Export for use by sync plugins
+if (typeof window !== 'undefined') {
+    window.calendarUtils = window.calendarUtils || {};
+    window.calendarUtils.parseMeetingLink = parseMeetingLink;
+}
 
 class Plugin extends CollectionPlugin {
 
@@ -34,13 +80,19 @@ class Plugin extends CollectionPlugin {
         'Waste': 'waste'
     };
 
+    TIMING_LABEL_TO_ID = {
+        'Upcoming': 'upcoming',
+        'Past': 'past'
+    };
+
     // Convert label to ID for filtering
     labelToId(label, type = 'calendar') {
         const maps = {
             calendar: this.CALENDAR_LABEL_TO_ID,
             status: this.STATUS_LABEL_TO_ID,
             energy: this.ENERGY_LABEL_TO_ID,
-            outcome: this.OUTCOME_LABEL_TO_ID
+            outcome: this.OUTCOME_LABEL_TO_ID,
+            timing: this.TIMING_LABEL_TO_ID
         };
         const map = maps[type] || {};
         return map[label] || label.toLowerCase();
@@ -53,7 +105,8 @@ class Plugin extends CollectionPlugin {
             calendar: this.CALENDAR_LABEL_TO_ID,
             status: this.STATUS_LABEL_TO_ID,
             energy: this.ENERGY_LABEL_TO_ID,
-            outcome: this.OUTCOME_LABEL_TO_ID
+            outcome: this.OUTCOME_LABEL_TO_ID,
+            timing: this.TIMING_LABEL_TO_ID
         };
         const map = maps[type] || {};
         for (const [label, mappedId] of Object.entries(map)) {
@@ -147,6 +200,87 @@ class Plugin extends CollectionPlugin {
         return eventDate === targetDate;
     }
 
+    /**
+     * Check if an event is in the past.
+     * For timed events: past if end time (or start + 1hr) has passed.
+     * For all-day events: past if the date is before today.
+     */
+    isEventPast(record) {
+        const dt = record.prop('time_period')?.datetime();
+        if (!dt) return false;
+
+        const val = dt.value();
+        if (!val?.d) return false;
+
+        const now = new Date();
+        const todayStr = this.getLocalDateString();
+        const eventDate = val.d.slice(0, 4) + '-' + val.d.slice(4, 6) + '-' + val.d.slice(6, 8);
+
+        // For ranges, check the end date
+        if (val.r?.d) {
+            const endDate = val.r.d.slice(0, 4) + '-' + val.r.d.slice(4, 6) + '-' + val.r.d.slice(6, 8);
+            // If end date has end time, check that
+            if (val.r.t?.t) {
+                if (endDate < todayStr) return true;
+                if (endDate > todayStr) return false;
+                // Same day - check time
+                const endHour = parseInt(val.r.t.t.slice(0, 2));
+                const endMin = parseInt(val.r.t.t.slice(2, 4));
+                return now.getHours() > endHour || (now.getHours() === endHour && now.getMinutes() >= endMin);
+            }
+            // All-day range: past if end date is before today
+            return endDate < todayStr;
+        }
+
+        // Single event with time
+        if (val.t?.t) {
+            if (eventDate < todayStr) return true;
+            if (eventDate > todayStr) return false;
+            // Same day - check if 1 hour after start has passed
+            const startHour = parseInt(val.t.t.slice(0, 2));
+            const startMin = parseInt(val.t.t.slice(2, 4));
+            const eventTime = new Date();
+            eventTime.setHours(startHour, startMin, 0, 0);
+            const oneHourAfter = new Date(eventTime.getTime() + 60 * 60 * 1000);
+            return now >= oneHourAfter;
+        }
+
+        // All-day single event: past if before today
+        return eventDate < todayStr;
+    }
+
+    /**
+     * Update the timing field for all calendar events.
+     * Runs every 30 minutes to mark past events.
+     */
+    async updateEventTiming() {
+        try {
+            const collection = await this.getCollection(this.data);
+            if (!collection) return;
+
+            const records = await collection.getAllRecords();
+            let updated = 0;
+
+            for (const record of records) {
+                const currentTiming = record.prop('timing')?.choice();
+                const isPast = this.isEventPast(record);
+                const shouldBe = isPast ? 'past' : 'upcoming';
+
+                // Only update if different
+                if (currentTiming !== shouldBe) {
+                    record.prop('timing')?.setChoice(isPast ? 'Past' : 'Upcoming');
+                    updated++;
+                }
+            }
+
+            if (updated > 0) {
+                console.log(`[Calendar] Updated timing for ${updated} events`);
+            }
+        } catch (e) {
+            console.error('[Calendar] Error updating event timing:', e);
+        }
+    }
+
     async onLoad() {
         // Wait for SyncHub to register tools
         window.addEventListener('synchub-ready', () => this.registerTools(), { once: true });
@@ -154,6 +288,10 @@ class Plugin extends CollectionPlugin {
 
         // Meeting status bar
         this.setupMeetingStatusBar();
+
+        // Update timing field every 30 minutes
+        this.updateEventTiming();
+        setInterval(() => this.updateEventTiming(), 30 * 60 * 1000);
     }
 
     // =========================================================================
@@ -198,10 +336,8 @@ class Plugin extends CollectionPlugin {
             // Find upcoming or ongoing meetings with meet_link, today only
             const upcoming = records
                 .filter(r => {
-                    const meetLink = r.text('meet_link');
-                    const location = r.text('location');
-                    // Has a meeting link (meet_link or URL in location)
-                    if (!meetLink && !location?.includes('http')) return false;
+                    // Has a meeting link (meet_link field, or parsed from description/location)
+                    if (!this.getMeetingLink(r)) return false;
 
                     const dt = r.prop('time_period')?.datetime();
                     if (!dt) return false;
@@ -293,12 +429,15 @@ class Plugin extends CollectionPlugin {
     }
 
     getMeetingLink(record) {
+        // First check the meet_link field (should be populated by sync)
         const meetLink = record.text('meet_link');
         if (meetLink) return meetLink;
-        // Fallback: check location for URL
+
+        // Fallback: try to parse from description and location
+        // (for events synced before the parsing was added)
+        const description = record.text('description') || '';
         const location = record.text('location') || '';
-        const urlMatch = location.match(/https?:\/\/[^\s]+/);
-        return urlMatch ? urlMatch[0] : null;
+        return parseMeetingLink(description, location);
     }
 
     showMeetingPopup() {
@@ -453,6 +592,7 @@ class Plugin extends CollectionPlugin {
                 time_period: 'Event date/time',
                 calendar: 'Primary | Work | Personal | Family',
                 status: 'Confirmed | Tentative | Cancelled',
+                timing: 'Upcoming | Past (auto-updated)',
                 location: 'Event location',
                 attendees: 'Attendee names',
                 meet_link: 'Video meeting URL',
@@ -465,10 +605,11 @@ class Plugin extends CollectionPlugin {
             tools: [
                 {
                     name: 'find',
-                    description: 'Find events by calendar or status. Returns GUIDs - use [[GUID]] to link.',
+                    description: 'Find events by calendar, status, or timing. Returns GUIDs - use [[GUID]] to link.',
                     parameters: {
                         calendar: { type: 'string', enum: ['Primary', 'Work', 'Personal', 'Family'], optional: true },
                         status: { type: 'string', enum: ['Confirmed', 'Tentative', 'Cancelled'], optional: true },
+                        timing: { type: 'string', enum: ['Upcoming', 'Past'], optional: true },
                         limit: { type: 'number', optional: true }
                     },
                     handler: async (args, data) => this.toolFind(args, data)
@@ -536,6 +677,9 @@ class Plugin extends CollectionPlugin {
         if (args.status) {
             results = results.filter(r => this.choiceMatches(r, 'status', args.status));
         }
+        if (args.timing) {
+            results = results.filter(r => this.choiceMatches(r, 'timing', args.timing));
+        }
 
         // Sort by time ascending
         results.sort((a, b) => {
@@ -553,6 +697,7 @@ class Plugin extends CollectionPlugin {
             when: this.formatDateTime(r),
             calendar: this.idToLabel(r.prop('calendar')?.choice(), 'calendar'),
             status: this.idToLabel(r.prop('status')?.choice(), 'status'),
+            timing: this.idToLabel(r.prop('timing')?.choice(), 'timing'),
             location: r.text('location')
         }));
     }
