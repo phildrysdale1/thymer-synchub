@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlannerHub - Thymer Companion</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Thymer CSS Variables (Dark Theme) */
+        :root {
+            --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --bg-default: #1a1a1a;
+            --bg-hover: #242424;
+            --bg-active: #2a2a2a;
+            --bg-surface: #1e1e1e;
+            --border-default: rgba(255,255,255,0.08);
+            --border-strong: rgba(255,255,255,0.15);
+            --text-default: #e0e0e0;
+            --text-muted: #888;
+            --text-faint: #555;
+            --accent-color: #4f9eed;
+            --accent-hover: #6bb3ff;
+            --enum-green-bg: #238636;
+            --enum-green-fg: #3fb950;
+            --enum-red-bg: #da3633;
+            --enum-red-fg: #f85149;
+            --enum-orange-bg: #9e6a03;
+            --enum-orange-fg: #d29922;
+            --enum-blue-bg: #1f6feb;
+            --enum-blue-fg: #58a6ff;
+            --enum-purple-bg: #8957e5;
+            --enum-purple-fg: #a371f7;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: #0d0d0d;
+            color: var(--text-default);
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        /* Demo Container */
+        .demo-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .demo-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .demo-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--accent-color), var(--enum-purple-fg));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .demo-subtitle {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Mode Switcher */
+        .mode-switcher {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 40px;
+        }
+
+        .mode-btn {
+            padding: 10px 20px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            color: var(--text-muted);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mode-btn:hover {
+            background: var(--bg-active);
+            border-color: var(--border-strong);
+        }
+
+        .mode-btn.active {
+            background: var(--accent-color);
+            border-color: var(--accent-color);
+            color: white;
+        }
+
+        /* Demo Stage - simulates Thymer app background */
+        .demo-stage {
+            background: var(--bg-default);
+            border: 1px solid var(--border-default);
+            border-radius: 16px;
+            min-height: 600px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Fake Thymer content */
+        .fake-thymer-content {
+            padding: 40px;
+            opacity: 0.3;
+        }
+
+        .fake-line {
+            height: 16px;
+            background: var(--border-default);
+            border-radius: 4px;
+            margin-bottom: 12px;
+        }
+
+        .fake-line:nth-child(odd) { width: 80%; }
+        .fake-line:nth-child(even) { width: 60%; }
+
+        /* ========================================
+           MODE 1: STATUS BAR
+           ======================================== */
+        .status-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 20px;
+            font-size: 13px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .status-bar:hover {
+            border-color: var(--accent-color);
+            box-shadow: 0 4px 24px rgba(79, 158, 237, 0.2);
+        }
+
+        .status-bar-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--enum-green-fg);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-bar-icon.idle {
+            background: var(--text-muted);
+            animation: none;
+        }
+
+        .status-bar-icon.paused {
+            background: var(--enum-orange-fg);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.1); }
+        }
+
+        .status-bar-task {
+            color: var(--text-default);
+            font-weight: 500;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .status-bar-time {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--enum-green-fg);
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        /* ========================================
+           MODE 2: COMPACT OVERLAY
+           ======================================== */
+        .compact-overlay {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 320px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            overflow: hidden;
+            flex-direction: column;
+        }
+
+        .compact-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-default);
+            flex-shrink: 0;
+        }
+
+        .compact-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .compact-status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--enum-green-fg);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .compact-status-text {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--enum-green-fg);
+            font-weight: 600;
+        }
+
+        .compact-controls {
+            display: flex;
+            gap: 4px;
+        }
+
+        .compact-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: none;
+            background: var(--bg-hover);
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+
+        .compact-btn:hover {
+            background: var(--bg-active);
+            color: var(--text-default);
+        }
+
+        .compact-body {
+            padding: 16px;
+            flex: 1;
+        }
+
+        .compact-task {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-default);
+            margin-bottom: 4px;
+        }
+
+        .compact-task-link {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        .compact-task-link:hover {
+            text-decoration: underline;
+        }
+
+        .compact-source {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+        }
+
+        .compact-timer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .compact-timer-ring {
+            width: 48px;
+            height: 48px;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .compact-timer-ring svg {
+            transform: rotate(-90deg);
+            width: 48px;
+            height: 48px;
+        }
+
+        .compact-timer-ring circle {
+            fill: none;
+            stroke-width: 4;
+        }
+
+        .compact-timer-ring .ring-bg {
+            stroke: var(--border-default);
+        }
+
+        .compact-timer-ring .ring-progress {
+            stroke: var(--enum-green-fg);
+            stroke-linecap: round;
+            stroke-dasharray: 126;
+            stroke-dashoffset: 40;
+            transition: stroke-dashoffset 1s ease;
+        }
+
+        .compact-timer-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-default);
+        }
+
+        .compact-timer-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .compact-timer-elapsed {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-default);
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .compact-timer-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .compact-progress {
+            height: 4px;
+            background: var(--border-default);
+            border-radius: 2px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .compact-progress-bar {
+            height: 100%;
+            width: 65%;
+            background: linear-gradient(90deg, var(--enum-green-fg), var(--enum-blue-fg));
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .compact-next {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--bg-hover);
+            border-radius: 8px;
+        }
+
+        .compact-next-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .compact-next-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-faint);
+        }
+
+        .compact-next-task {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .compact-next-time {
+            font-size: 11px;
+            color: var(--text-faint);
+            font-family: 'JetBrains Mono', monospace;
+            white-space: nowrap;
+        }
+
+        .compact-footer {
+            display: flex;
+            border-top: 1px solid var(--border-default);
+            flex-shrink: 0;
+        }
+
+        .compact-action {
+            flex: 1;
+            padding: 12px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+
+        .compact-action:hover {
+            background: var(--bg-hover);
+            color: var(--text-default);
+        }
+
+        .compact-action:first-child {
+            border-right: 1px solid var(--border-default);
+        }
+
+        .compact-action.primary {
+            color: var(--accent-color);
+        }
+
+        /* ========================================
+           MODE 3: FULL PLANNING MODE
+           ======================================== */
+        .full-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            bottom: 20px;
+            width: 480px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 16px;
+            box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .full-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-default);
+        }
+
+        .full-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .full-title-icon {
+            color: var(--accent-color);
+        }
+
+        .full-header-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .full-body {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .full-main {
+            flex: 1;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Big Timer Circle */
+        .big-timer {
+            width: 180px;
+            height: 180px;
+            position: relative;
+            margin-bottom: 24px;
+        }
+
+        .big-timer svg {
+            transform: rotate(-90deg);
+            filter: drop-shadow(0 0 20px rgba(63, 185, 80, 0.3));
+        }
+
+        .big-timer circle {
+            fill: none;
+        }
+
+        .big-timer .timer-bg {
+            stroke: var(--border-default);
+            stroke-width: 8;
+        }
+
+        .big-timer .timer-progress {
+            stroke: url(#timerGradient);
+            stroke-width: 8;
+            stroke-linecap: round;
+            stroke-dasharray: 502;
+            stroke-dashoffset: 150;
+            transition: stroke-dashoffset 1s ease;
+        }
+
+        .big-timer .timer-glow {
+            stroke: var(--enum-green-fg);
+            stroke-width: 12;
+            stroke-linecap: round;
+            stroke-dasharray: 502;
+            stroke-dashoffset: 150;
+            opacity: 0.2;
+            filter: blur(8px);
+        }
+
+        .big-timer-inner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .big-timer-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--text-default);
+            line-height: 1;
+        }
+
+        .big-timer-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+
+        .current-task {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .current-task-label {
+            font-size: 11px;
+            color: var(--text-faint);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .current-task-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-default);
+            margin-bottom: 4px;
+        }
+
+        .current-task-name a {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        .current-task-name a:hover {
+            text-decoration: underline;
+        }
+
+        .current-task-source {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .timer-controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .timer-btn {
+            padding: 12px 24px;
+            border-radius: 10px;
+            border: none;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .timer-btn.pause {
+            background: var(--enum-orange-bg);
+            color: white;
+        }
+
+        .timer-btn.pause:hover {
+            background: #b87a03;
+            transform: translateY(-1px);
+        }
+
+        .timer-btn.end {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            color: var(--text-default);
+        }
+
+        .timer-btn.end:hover {
+            background: var(--bg-active);
+            border-color: var(--border-strong);
+        }
+
+        /* Day Timeline */
+        .day-timeline {
+            width: 160px;
+            border-left: 1px solid var(--border-default);
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        .timeline-header {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-faint);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .timeline-hours {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .timeline-slot {
+            display: flex;
+            align-items: stretch;
+            min-height: 40px;
+        }
+
+        .timeline-hour {
+            width: 40px;
+            font-size: 10px;
+            color: var(--text-faint);
+            font-family: 'JetBrains Mono', monospace;
+            padding-top: 4px;
+        }
+
+        .timeline-block {
+            flex: 1;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .timeline-block:hover {
+            transform: translateX(2px);
+        }
+
+        .timeline-block.empty {
+            background: var(--bg-hover);
+            border: 1px dashed var(--border-default);
+        }
+
+        .timeline-block.task {
+            background: linear-gradient(135deg, rgba(79, 158, 237, 0.2), rgba(79, 158, 237, 0.1));
+            border: 1px solid rgba(79, 158, 237, 0.3);
+            color: var(--accent-color);
+        }
+
+        .timeline-block.task.active {
+            background: linear-gradient(135deg, rgba(63, 185, 80, 0.25), rgba(63, 185, 80, 0.15));
+            border-color: rgba(63, 185, 80, 0.4);
+            color: var(--enum-green-fg);
+            box-shadow: 0 0 12px rgba(63, 185, 80, 0.2);
+        }
+
+        .timeline-block.calendar {
+            background: linear-gradient(135deg, rgba(137, 87, 229, 0.2), rgba(137, 87, 229, 0.1));
+            border: 1px solid rgba(137, 87, 229, 0.3);
+            color: var(--enum-purple-fg);
+        }
+
+        .timeline-block-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Unscheduled Footer */
+        .full-footer {
+            border-top: 1px solid var(--border-default);
+            padding: 16px 20px;
+        }
+
+        .unscheduled-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .unscheduled-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-faint);
+        }
+
+        .add-task-btn {
+            padding: 6px 12px;
+            background: var(--accent-color);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .add-task-btn:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .unscheduled-tasks {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .unscheduled-task {
+            padding: 8px 12px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .unscheduled-task:hover {
+            background: var(--bg-active);
+            border-color: var(--accent-color);
+            color: var(--text-default);
+        }
+
+        .unscheduled-task .ti {
+            color: var(--accent-color);
+        }
+
+        /* ========================================
+           KANBAN POPUP
+           ======================================== */
+        .kanban-popup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-default);
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+            overflow: hidden;
+        }
+
+        .kanban-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-default);
+        }
+
+        .kanban-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .kanban-filter {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .kanban-filter select {
+            padding: 6px 10px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 6px;
+            color: var(--text-default);
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .kanban-body {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1px;
+            background: var(--border-default);
+        }
+
+        .kanban-column {
+            background: var(--bg-surface);
+            min-height: 300px;
+        }
+
+        .kanban-column-header {
+            padding: 12px 16px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-default);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .kanban-column-header.today {
+            color: var(--enum-green-fg);
+        }
+
+        .kanban-column-header.doing {
+            color: var(--enum-blue-fg);
+        }
+
+        .kanban-column-header.next {
+            color: var(--enum-purple-fg);
+        }
+
+        .kanban-column-count {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: var(--bg-hover);
+            border-radius: 10px;
+            color: var(--text-muted);
+        }
+
+        .kanban-column-body {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .kanban-item {
+            padding: 12px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .kanban-item:hover {
+            background: var(--bg-active);
+            border-color: var(--accent-color);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .kanban-item-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-default);
+            margin-bottom: 4px;
+        }
+
+        .kanban-item-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .kanban-item-repo {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Backdrop */
+        .backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+        }
+
+        /* Hide modes by default */
+        .status-bar,
+        .compact-overlay,
+        .full-overlay,
+        .kanban-popup,
+        .backdrop {
+            display: none;
+        }
+
+        .status-bar.visible {
+            display: flex;
+        }
+
+        .compact-overlay.visible {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .full-overlay.visible {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .kanban-popup.visible {
+            display: block;
+        }
+
+        .backdrop.visible {
+            display: block;
+        }
+
+        /* Animation */
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .compact-overlay.visible,
+        .full-overlay.visible {
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .backdrop.visible {
+            animation: fadeIn 0.2s ease;
+        }
+
+        .kanban-popup.visible {
+            animation: slideUp 0.3s ease;
+        }
+
+        /* Timer animation */
+        @keyframes timerPulse {
+            0%, 100% {
+                filter: drop-shadow(0 0 20px rgba(63, 185, 80, 0.3));
+            }
+            50% {
+                filter: drop-shadow(0 0 30px rgba(63, 185, 80, 0.5));
+            }
+        }
+
+        .big-timer svg {
+            animation: timerPulse 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="demo-header">
+            <h1 class="demo-title">PlannerHub</h1>
+            <p class="demo-subtitle">Your companion that follows you. Three modes of visibility.</p>
+        </div>
+
+        <div class="mode-switcher">
+            <button class="mode-btn" data-mode="status" onclick="setMode('status')">
+                <i class="ti ti-minus"></i>
+                Status Bar
+            </button>
+            <button class="mode-btn" data-mode="compact" onclick="setMode('compact')">
+                <i class="ti ti-layout-bottombar"></i>
+                Compact
+            </button>
+            <button class="mode-btn" data-mode="full" onclick="setMode('full')">
+                <i class="ti ti-layout-sidebar-right"></i>
+                Full Mode
+            </button>
+            <button class="mode-btn" data-mode="kanban" onclick="setMode('kanban')">
+                <i class="ti ti-plus"></i>
+                Add Task
+            </button>
+        </div>
+
+        <div class="demo-stage">
+            <!-- Fake Thymer background content -->
+            <div class="fake-thymer-content">
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+                <div class="fake-line"></div>
+            </div>
+
+            <!-- MODE 1: Status Bar -->
+            <div class="status-bar" id="statusBar">
+                <div class="status-bar-icon"></div>
+                <span class="status-bar-task">Auth bug fix</span>
+                <span class="status-bar-time">23:45</span>
+            </div>
+
+            <!-- MODE 2: Compact Overlay -->
+            <div class="compact-overlay" id="compactOverlay">
+                <div class="compact-header">
+                    <div class="compact-status">
+                        <div class="compact-status-dot"></div>
+                        <span class="compact-status-text">Working</span>
+                    </div>
+                    <div class="compact-controls">
+                        <button class="compact-btn" title="Minimize">
+                            <i class="ti ti-minus"></i>
+                        </button>
+                        <button class="compact-btn" title="Expand">
+                            <i class="ti ti-arrows-maximize"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="compact-body">
+                    <div class="compact-task">
+                        work on <a href="#" class="compact-task-link">[[Auth bug]]</a>
+                    </div>
+                    <div class="compact-source">Journal &middot; Today</div>
+
+                    <div class="compact-timer">
+                        <div class="compact-timer-ring">
+                            <svg viewBox="0 0 48 48">
+                                <circle class="ring-bg" cx="24" cy="24" r="20"/>
+                                <circle class="ring-progress" cx="24" cy="24" r="20"/>
+                            </svg>
+                            <div class="compact-timer-value">65%</div>
+                        </div>
+                        <div class="compact-timer-info">
+                            <div class="compact-timer-elapsed">23:45</div>
+                            <div class="compact-timer-label">elapsed</div>
+                        </div>
+                    </div>
+
+                    <div class="compact-progress">
+                        <div class="compact-progress-bar"></div>
+                    </div>
+
+                    <div class="compact-next">
+                        <div class="compact-next-info">
+                            <div class="compact-next-label">Next</div>
+                            <div class="compact-next-task">Ship feature X</div>
+                        </div>
+                        <div class="compact-next-time">@ 14:00</div>
+                    </div>
+                </div>
+                <div class="compact-footer">
+                    <button class="compact-action">
+                        <i class="ti ti-player-pause"></i>
+                        Pause
+                    </button>
+                    <button class="compact-action primary">
+                        <i class="ti ti-check"></i>
+                        Complete
+                    </button>
+                </div>
+            </div>
+
+            <!-- MODE 3: Full Planning Mode -->
+            <div class="full-overlay" id="fullOverlay">
+                <div class="full-header">
+                    <div class="full-title">
+                        <i class="ti ti-calendar-time full-title-icon"></i>
+                        PlannerHub
+                    </div>
+                    <div class="full-header-actions">
+                        <button class="compact-btn" title="Compact mode">
+                            <i class="ti ti-layout-bottombar"></i>
+                        </button>
+                        <button class="compact-btn" title="Close">
+                            <i class="ti ti-x"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="full-body">
+                    <div class="full-main">
+                        <!-- Big Timer -->
+                        <div class="big-timer">
+                            <svg width="180" height="180" viewBox="0 0 180 180">
+                                <defs>
+                                    <linearGradient id="timerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" style="stop-color:#3fb950"/>
+                                        <stop offset="100%" style="stop-color:#58a6ff"/>
+                                    </linearGradient>
+                                </defs>
+                                <circle class="timer-bg" cx="90" cy="90" r="80"/>
+                                <circle class="timer-glow" cx="90" cy="90" r="80"/>
+                                <circle class="timer-progress" cx="90" cy="90" r="80"/>
+                            </svg>
+                            <div class="big-timer-inner">
+                                <div class="big-timer-value">23:45</div>
+                                <div class="big-timer-label">elapsed</div>
+                            </div>
+                        </div>
+
+                        <!-- Current Task -->
+                        <div class="current-task">
+                            <div class="current-task-label">Currently working on</div>
+                            <div class="current-task-name">
+                                work on <a href="#">[[Auth bug]]</a>
+                            </div>
+                            <div class="current-task-source">from Journal &middot; planned 1h</div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div class="timer-controls">
+                            <button class="timer-btn pause">
+                                <i class="ti ti-player-pause"></i>
+                                Pause
+                            </button>
+                            <button class="timer-btn end">
+                                <i class="ti ti-player-stop"></i>
+                                End Session
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Day Timeline -->
+                    <div class="day-timeline">
+                        <div class="timeline-header">
+                            <i class="ti ti-calendar"></i>
+                            Today
+                        </div>
+                        <div class="timeline-hours">
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">9:00</div>
+                                <div class="timeline-block empty"></div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">10:00</div>
+                                <div class="timeline-block task active">
+                                    <div class="timeline-block-name">Auth bug</div>
+                                </div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">11:00</div>
+                                <div class="timeline-block task active">
+                                    <div class="timeline-block-name"></div>
+                                </div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">12:00</div>
+                                <div class="timeline-block calendar">
+                                    <div class="timeline-block-name">Standup</div>
+                                </div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">13:00</div>
+                                <div class="timeline-block empty"></div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">14:00</div>
+                                <div class="timeline-block task">
+                                    <div class="timeline-block-name">Ship X</div>
+                                </div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">15:00</div>
+                                <div class="timeline-block task">
+                                    <div class="timeline-block-name"></div>
+                                </div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">16:00</div>
+                                <div class="timeline-block empty"></div>
+                            </div>
+                            <div class="timeline-slot">
+                                <div class="timeline-hour">17:00</div>
+                                <div class="timeline-block empty"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="full-footer">
+                    <div class="unscheduled-header">
+                        <span class="unscheduled-title">Unscheduled</span>
+                        <button class="add-task-btn" onclick="setMode('kanban')">
+                            <i class="ti ti-plus"></i>
+                            Add Task
+                        </button>
+                    </div>
+                    <div class="unscheduled-tasks">
+                        <div class="unscheduled-task">
+                            <i class="ti ti-git-pull-request"></i>
+                            Review PR #42
+                        </div>
+                        <div class="unscheduled-task">
+                            <i class="ti ti-file-text"></i>
+                            Update docs
+                        </div>
+                        <div class="unscheduled-task">
+                            <i class="ti ti-bug"></i>
+                            Fix login issue
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Backdrop for Kanban -->
+            <div class="backdrop" id="backdrop" onclick="setMode('full')"></div>
+
+            <!-- Kanban Popup -->
+            <div class="kanban-popup" id="kanbanPopup">
+                <div class="kanban-header">
+                    <div class="kanban-title">
+                        <i class="ti ti-layout-kanban"></i>
+                        Add to Today
+                    </div>
+                    <div class="kanban-filter">
+                        <select>
+                            <option>All repos</option>
+                            <option>thymer-synchub</option>
+                            <option>thymer-app</option>
+                        </select>
+                        <button class="compact-btn" onclick="setMode('full')">
+                            <i class="ti ti-x"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="kanban-body">
+                    <!-- Today Column -->
+                    <div class="kanban-column">
+                        <div class="kanban-column-header today">
+                            <span>Today</span>
+                            <span class="kanban-column-count">2</span>
+                        </div>
+                        <div class="kanban-column-body">
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Auth bug fix</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#127</span>
+                                </div>
+                            </div>
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Ship feature X</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#134</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Doing Column -->
+                    <div class="kanban-column">
+                        <div class="kanban-column-header doing">
+                            <span>Doing</span>
+                            <span class="kanban-column-count">3</span>
+                        </div>
+                        <div class="kanban-column-body">
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Calendar sync improvements</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-synchub
+                                    </span>
+                                    <span>#18</span>
+                                </div>
+                            </div>
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">OAuth refresh flow</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#142</span>
+                                </div>
+                            </div>
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Dark mode tweaks</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#138</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Next Column -->
+                    <div class="kanban-column">
+                        <div class="kanban-column-header next">
+                            <span>Next</span>
+                            <span class="kanban-column-count">4</span>
+                        </div>
+                        <div class="kanban-column-body">
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Review PR #42</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-pull-request"></i>
+                                        thymer-synchub
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Update API docs</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#156</span>
+                                </div>
+                            </div>
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Performance audit</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#161</span>
+                                </div>
+                            </div>
+                            <div class="kanban-item">
+                                <div class="kanban-item-title">Mobile responsive fixes</div>
+                                <div class="kanban-item-meta">
+                                    <span class="kanban-item-repo">
+                                        <i class="ti ti-git-branch"></i>
+                                        thymer-app
+                                    </span>
+                                    <span>#159</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = null;
+        let timerInterval = null;
+        let seconds = 1425; // 23:45
+
+        function setMode(mode) {
+            // Update buttons
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+
+            // Hide all overlays
+            document.getElementById('statusBar').classList.remove('visible');
+            document.getElementById('compactOverlay').classList.remove('visible');
+            document.getElementById('fullOverlay').classList.remove('visible');
+            document.getElementById('kanbanPopup').classList.remove('visible');
+            document.getElementById('backdrop').classList.remove('visible');
+
+            // Show selected mode
+            if (mode === 'status') {
+                document.getElementById('statusBar').classList.add('visible');
+            } else if (mode === 'compact') {
+                document.getElementById('compactOverlay').classList.add('visible');
+            } else if (mode === 'full') {
+                document.getElementById('fullOverlay').classList.add('visible');
+            } else if (mode === 'kanban') {
+                document.getElementById('fullOverlay').classList.add('visible');
+                document.getElementById('backdrop').classList.add('visible');
+                document.getElementById('kanbanPopup').classList.add('visible');
+            }
+
+            currentMode = mode;
+        }
+
+        function updateTimer() {
+            seconds++;
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+            // Update all timer displays
+            document.querySelector('.status-bar-time').textContent = timeStr;
+            document.querySelector('.compact-timer-elapsed').textContent = timeStr;
+            document.querySelector('.big-timer-value').textContent = timeStr;
+
+            // Update progress (assuming 1h planned = 3600 seconds)
+            const progress = Math.min((seconds / 3600) * 100, 100);
+            document.querySelector('.compact-timer-value').textContent = Math.round(progress) + '%';
+
+            // Update SVG progress (r=20, circumference = 2*π*20 ≈ 126)
+            const circumference = 126;
+            const offset = circumference - (progress / 100 * circumference);
+            document.querySelector('.ring-progress').style.strokeDashoffset = offset;
+
+            // Big timer (circumference ~502 for r=80)
+            const bigCircumference = 502;
+            const bigOffset = bigCircumference - (progress / 100 * bigCircumference);
+            document.querySelectorAll('.timer-progress, .timer-glow').forEach(el => {
+                el.style.strokeDashoffset = bigOffset;
+            });
+
+            // Progress bar
+            document.querySelector('.compact-progress-bar').style.width = progress + '%';
+        }
+
+        // Start timer
+        timerInterval = setInterval(updateTimer, 1000);
+
+        // Initialize with compact mode
+        setMode('compact');
+    </script>
+</body>
+</html>
