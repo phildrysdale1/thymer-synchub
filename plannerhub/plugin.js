@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.15';
+const VERSION = 'v1.1.2';
 /**
  * PlannerHub - Your companion for daily planning
  *
@@ -8,9 +8,27 @@ const VERSION = 'v1.0.15';
  * - Doing/Next: issues by status (click to add "work on [[issue]]")
  * - Daily Note: browse any day's tasks, transclude to today's plan
  * - MCP tools for AI assistants
+ *
+ * Phase 2: Time Scheduling
+ * - Schedule tasks with time slots (stored as child items)
+ * - Auto-fill unscheduled tasks into timeline gaps (1hr default)
+ * - Unified timeline view for Session plugin integration
+ * - Status manipulation APIs (markDone, markInProgress)
  */
 
 const PLANNERHUB_HEADING = 'PlannerHub';
+
+// Status mapping: raw done value → semantic status
+// Raw values: undefined/0=unchecked, 1=in-progress, 2=blocked, 3-7=other, 8=done
+const STATUS_TODO = 'todo';
+const STATUS_IN_PROGRESS = 'in_progress';
+const STATUS_DONE = 'done';
+
+function getTaskStatus(rawDone) {
+    if (rawDone === 8) return STATUS_DONE;
+    if (rawDone === 1) return STATUS_IN_PROGRESS;
+    return STATUS_TODO;  // undefined, 0, 2-7 all map to todo
+}
 
 // Cache heading GUID per journal to avoid timing issues
 const headingCache = new Map(); // journalGuid -> headingGuid
@@ -476,32 +494,264 @@ class Plugin extends CollectionPlugin {
         window.plannerHub = {
             version: VERSION,
 
-            // Get today's tasks from Journal
+            // ─────────────────────────────────────────────────────
+            // Read - Tasks
+            // ─────────────────────────────────────────────────────
             getTodayTasks: () => this.getTodayTasks(),
-
-            // Get issues by status
+            getPlannerHubTasks: () => this.getPlannerHubTasks(),
             getIssues: (status) => this.getIssuesByStatus(status),
-
-            // Add task to today's daily note (under PlannerHub section)
-            addToToday: (text, issueGuid) => this.addToToday(text, issueGuid),
-
-            // Get what's next (first unchecked task)
             getWhatsNext: () => this.getWhatsNext(),
-
-            // Get the current month record
             getCurrentMonth: () => this.getOrCreateCurrentMonth(),
-
-            // Get incomplete tasks from previous days
             getIncompleteTasks: (daysBack) => this.getIncompleteTasks(daysBack),
 
-            // Migrate a task from a previous day to today
-            migrateTask: (taskGuid, sourceJournal) => this.migrateTask(taskGuid, sourceJournal),
+            // ─────────────────────────────────────────────────────
+            // Read - Timeline (Phase 2)
+            // ─────────────────────────────────────────────────────
+            getTimelineView: (opts) => this.getTimelineView(opts),
+            getScheduledTasks: () => this.getScheduledTasks(),
+            getUnscheduledTasks: () => this.getUnscheduledTasks(),
+            getTaskSchedule: (taskGuid) => this.getTaskSchedule(taskGuid),
 
-            // Remove a task from today (for an issue)
+            // ─────────────────────────────────────────────────────
+            // Write - Tasks
+            // ─────────────────────────────────────────────────────
+            addToToday: (text, issueGuid) => this.addToToday(text, issueGuid),
+            migrateTask: (taskGuid, sourceJournal) => this.migrateTask(taskGuid, sourceJournal),
             unplanTask: (issueGuid) => this.unplanTask(issueGuid),
+
+            // ─────────────────────────────────────────────────────
+            // Write - Status (Phase 2)
+            // ─────────────────────────────────────────────────────
+            setTaskStatus: (taskGuid, status) => this.setTaskStatus(taskGuid, status),
+            markDone: (taskGuid) => this.markDone(taskGuid),
+            markInProgress: (taskGuid) => this.markInProgress(taskGuid),
+
+            // ─────────────────────────────────────────────────────
+            // Write - Scheduling (Phase 2)
+            // ─────────────────────────────────────────────────────
+            scheduleTask: (taskGuid, start, end) => this.scheduleTask(taskGuid, start, end),
+            unscheduleTask: (taskGuid) => this.unscheduleTask(taskGuid),
+
+            // ─────────────────────────────────────────────────────
+            // Write - Reorder (Phase 2)
+            // ─────────────────────────────────────────────────────
+            moveTaskAfter: (taskGuid, afterGuid) => this.moveTaskAfter(taskGuid, afterGuid),
         };
 
+        // Expose test suite
+        this.exposeTestSuite();
+
         console.log('[PlannerHub] API exposed at window.plannerHub');
+    }
+
+    exposeTestSuite() {
+        window.plannerHubTests = {
+            // ─────────────────────────────────────────────────────
+            // Test Runner
+            // ─────────────────────────────────────────────────────
+            async runAll() {
+                console.log('🧪 PlannerHub Test Suite');
+                console.log('========================\n');
+
+                const tests = [
+                    this.testGetTasks,
+                    this.testStatusManipulation,
+                    this.testScheduling,
+                    this.testTimelineView,
+                ];
+
+                let passed = 0;
+                let failed = 0;
+
+                for (const test of tests) {
+                    try {
+                        await test.call(this);
+                        passed++;
+                    } catch (e) {
+                        console.error(`❌ ${test.name} failed:`, e);
+                        failed++;
+                    }
+                }
+
+                console.log('\n========================');
+                console.log(`✅ Passed: ${passed}`);
+                console.log(`❌ Failed: ${failed}`);
+                return { passed, failed };
+            },
+
+            // ─────────────────────────────────────────────────────
+            // Test: Get Tasks
+            // ─────────────────────────────────────────────────────
+            async testGetTasks() {
+                console.log('📋 Test: Get Tasks');
+
+                const tasks = await window.plannerHub.getPlannerHubTasks();
+                console.log(`  Found ${tasks.length} tasks in PlannerHub section`);
+
+                if (tasks.length > 0) {
+                    const task = tasks[0];
+                    console.log(`  First task: "${task.text || task.linkedIssueTitle || '(no text)'}" [${task.guid}]`);
+                }
+
+                const scheduled = await window.plannerHub.getScheduledTasks();
+                console.log(`  Scheduled: ${scheduled.length}`);
+
+                const unscheduled = await window.plannerHub.getUnscheduledTasks();
+                console.log(`  Unscheduled: ${unscheduled.length}`);
+
+                console.log('  ✅ testGetTasks passed\n');
+            },
+
+            // ─────────────────────────────────────────────────────
+            // Test: Status Manipulation
+            // ─────────────────────────────────────────────────────
+            async testStatusManipulation() {
+                console.log('🔄 Test: Status Manipulation');
+
+                const tasks = await window.plannerHub.getPlannerHubTasks();
+                if (tasks.length === 0) {
+                    console.log('  ⚠️ No tasks to test - add a task first');
+                    console.log('  ✅ testStatusManipulation skipped\n');
+                    return;
+                }
+
+                const task = tasks[0];
+                const originalStatus = task.status;
+                const originalRaw = task.rawStatus;
+                console.log(`  Testing on: "${task.text || task.linkedIssueTitle}" (status: ${originalStatus})`);
+
+                // Test markInProgress
+                const inProgressResult = await window.plannerHub.markInProgress(task.guid);
+                console.log(`  markInProgress: ${inProgressResult ? '✓' : '✗'}`);
+
+                // Read back
+                const afterInProgress = await window.plannerHub.getPlannerHubTasks();
+                const taskAfter = afterInProgress.find(t => t.guid === task.guid);
+                console.log(`  Status after markInProgress: ${taskAfter?.status}`);
+
+                // Restore original
+                await window.plannerHub.setTaskStatus(task.guid, originalRaw || 0);
+                console.log(`  Restored original status: ${originalStatus}`);
+
+                console.log('  ✅ testStatusManipulation passed\n');
+            },
+
+            // ─────────────────────────────────────────────────────
+            // Test: Scheduling
+            // ─────────────────────────────────────────────────────
+            async testScheduling() {
+                console.log('⏰ Test: Scheduling');
+
+                const tasks = await window.plannerHub.getPlannerHubTasks();
+                if (tasks.length === 0) {
+                    console.log('  ⚠️ No tasks to test - add a task first');
+                    console.log('  ✅ testScheduling skipped\n');
+                    return;
+                }
+
+                const task = tasks[0];
+                console.log(`  Testing on: "${task.text || task.linkedIssueTitle}"`);
+
+                // Check current schedule
+                const originalSchedule = await window.plannerHub.getTaskSchedule(task.guid);
+                console.log(`  Original schedule: ${originalSchedule ? `${originalSchedule.start.toLocaleTimeString()} - ${originalSchedule.end.toLocaleTimeString()}` : 'none'}`);
+
+                // Schedule for 14:00
+                const scheduleResult = await window.plannerHub.scheduleTask(task.guid, '14:00', '15:30');
+                console.log(`  scheduleTask('14:00', '15:30'): ${scheduleResult ? '✓' : '✗'}`);
+
+                // Read back
+                const newSchedule = await window.plannerHub.getTaskSchedule(task.guid);
+                if (newSchedule) {
+                    console.log(`  New schedule: ${newSchedule.start.toLocaleTimeString()} - ${newSchedule.end.toLocaleTimeString()}`);
+                }
+
+                // Unschedule if it wasn't scheduled before
+                if (!originalSchedule) {
+                    const unscheduleResult = await window.plannerHub.unscheduleTask(task.guid);
+                    console.log(`  unscheduleTask: ${unscheduleResult ? '✓' : '✗'}`);
+                }
+
+                console.log('  ✅ testScheduling passed\n');
+            },
+
+            // ─────────────────────────────────────────────────────
+            // Test: Timeline View
+            // ─────────────────────────────────────────────────────
+            async testTimelineView() {
+                console.log('📅 Test: Timeline View');
+
+                const timeline = await window.plannerHub.getTimelineView({
+                    workdayStart: '09:00',
+                    workdayEnd: '18:00',
+                    defaultDuration: 60,
+                    includeCalendar: true
+                });
+
+                console.log(`  Timeline has ${timeline.length} items:`);
+
+                for (const item of timeline) {
+                    const startTime = item.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const endTime = item.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const label = item.text || item.linkedIssueTitle || '(no text)';
+                    const typeIcon = {
+                        scheduled: '📌',
+                        auto: '🔄',
+                        calendar: '📆',
+                        overflow: '⚠️'
+                    }[item.type] || '❓';
+
+                    console.log(`    ${startTime}-${endTime} ${typeIcon} ${label} [${item.type}]`);
+                }
+
+                console.log('  ✅ testTimelineView passed\n');
+            },
+
+            // ─────────────────────────────────────────────────────
+            // Interactive Tests
+            // ─────────────────────────────────────────────────────
+            async addTestTask(text = 'Test task from console') {
+                console.log(`Adding task: "${text}"`);
+                const result = await window.plannerHub.addToToday(text);
+                console.log(`Result: ${result ? '✓ Added' : '✗ Failed'}`);
+                return result;
+            },
+
+            async scheduleFirstTask(time = '10:00') {
+                const tasks = await window.plannerHub.getPlannerHubTasks();
+                if (tasks.length === 0) {
+                    console.log('No tasks to schedule');
+                    return false;
+                }
+                const task = tasks[0];
+                console.log(`Scheduling "${task.text || task.linkedIssueTitle}" at ${time}`);
+                return await window.plannerHub.scheduleTask(task.guid, time);
+            },
+
+            async showTimeline() {
+                return await this.testTimelineView();
+            },
+
+            async listTasks() {
+                const tasks = await window.plannerHub.getPlannerHubTasks();
+                console.log(`\n📋 PlannerHub Tasks (${tasks.length}):`);
+                for (let i = 0; i < tasks.length; i++) {
+                    const t = tasks[i];
+                    const schedule = await window.plannerHub.getTaskSchedule(t.guid);
+                    const timeStr = schedule
+                        ? ` @ ${schedule.start.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`
+                        : '';
+                    const statusIcon = {
+                        'done': '✓',
+                        'in_progress': '▶',
+                        'todo': '○'
+                    }[t.status] || '?';
+                    console.log(`  ${i + 1}. ${statusIcon} ${t.text || t.linkedIssueTitle || '(no text)'}${timeStr} [${t.status}]`);
+                    console.log(`     GUID: ${t.guid}`);
+                }
+                return tasks;
+            }
+        };
     }
 
     // =========================================================================
@@ -606,14 +856,15 @@ class Plugin extends CollectionPlugin {
                 const trimmedText = text.trim();
                 if (!trimmedText && !linkedIssueGuid) continue;
 
-                // Check completion status
-                const doneStatus = item.props?.done;
-                const isDone = doneStatus && doneStatus !== 0;
+                // Check status
+                const rawStatus = item.props?.done;
+                const status = getTaskStatus(rawStatus);
 
                 tasks.push({
                     guid: item.guid,
                     text: trimmedText,
-                    done: isDone,
+                    status,
+                    rawStatus,
                     linkedIssueGuid,
                     linkedIssueTitle,
                     lineItem: item,
@@ -701,15 +952,16 @@ class Plugin extends CollectionPlugin {
                 const trimmedText = text.trim();
                 if (!trimmedText && !linkedIssueGuid) continue;
 
-                // Check done status from the actual item
-                const doneStatus = actualItem.props?.done;
-                const isDone = doneStatus && doneStatus !== 0;
+                // Check status from the actual item
+                const rawStatus = actualItem.props?.done;
+                const status = getTaskStatus(rawStatus);
 
                 tasks.push({
                     guid: item.guid,  // Use the ref's guid for UI operations
                     actualGuid: taskGuid,  // The real task guid
                     text: trimmedText,
-                    done: isDone,
+                    status,
+                    rawStatus,
                     linkedIssueGuid,
                     linkedIssueTitle,
                     lineItem: item,
@@ -766,10 +1018,14 @@ class Plugin extends CollectionPlugin {
                 const trimmedText = text.trim();
                 if (!trimmedText && !linkedIssueGuid) continue;
 
+                const rawStatus = item.props?.done;
+                const status = getTaskStatus(rawStatus);
+
                 tasks.push({
                     guid: item.guid,
                     text: trimmedText,
-                    done: !!item.props?.done,
+                    status,
+                    rawStatus,
                     linkedIssueGuid,
                     linkedIssueTitle,
                     lineItem: item,
@@ -962,6 +1218,443 @@ class Plugin extends CollectionPlugin {
     }
 
     // =========================================================================
+    // Task Status Manipulation (Phase 2)
+    // =========================================================================
+
+    /**
+     * Set task status by GUID.
+     * @param {string} taskGuid - The task GUID
+     * @param {number} status - Status value (0=unchecked, 1=in-progress, 2=blocked, 8=done)
+     */
+    async setTaskStatus(taskGuid, status) {
+        const journal = await this.getTodayJournal();
+        if (!journal) return false;
+
+        try {
+            const items = await journal.getLineItems();
+            const item = items.find(i => i.guid === taskGuid);
+            if (!item) return false;
+
+            if (item.setMetaProperties) {
+                item.setMetaProperties({ done: status });
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('[PlannerHub] Error setting task status:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Mark task as done (status = 8)
+     */
+    async markDone(taskGuid) {
+        return this.setTaskStatus(taskGuid, 8);
+    }
+
+    /**
+     * Mark task as in-progress (status = 1)
+     */
+    async markInProgress(taskGuid) {
+        return this.setTaskStatus(taskGuid, 1);
+    }
+
+    // =========================================================================
+    // Time Scheduling (Phase 2)
+    // =========================================================================
+
+    /**
+     * Format for time children: "Wed Jan 7 15:00 — Wed Jan 7 16:00"
+     */
+    formatTimeRange(start, end) {
+        const formatDate = (d) => {
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                           'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const day = days[d.getDay()];
+            const month = months[d.getMonth()];
+            const date = d.getDate();
+            const hours = d.getHours().toString().padStart(2, '0');
+            const mins = d.getMinutes().toString().padStart(2, '0');
+            return `${day} ${month} ${date} ${hours}:${mins}`;
+        };
+        return `${formatDate(start)} — ${formatDate(end)}`;
+    }
+
+    /**
+     * Parse time range from child text.
+     * Returns { start: Date, end: Date } or null.
+     */
+    parseTimeRange(text) {
+        // Match: "Wed Jan 7 15:00 — Wed Jan 7 16:00"
+        const pattern = /(\w{3}) (\w{3}) (\d{1,2}) (\d{2}):(\d{2}) — (\w{3}) (\w{3}) (\d{1,2}) (\d{2}):(\d{2})/;
+        const match = text.match(pattern);
+        if (!match) return null;
+
+        const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+                        Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+
+        const year = new Date().getFullYear();
+        const startMonth = months[match[2]];
+        const startDate = parseInt(match[3]);
+        const startHour = parseInt(match[4]);
+        const startMin = parseInt(match[5]);
+
+        const endMonth = months[match[7]];
+        const endDate = parseInt(match[8]);
+        const endHour = parseInt(match[9]);
+        const endMin = parseInt(match[10]);
+
+        return {
+            start: new Date(year, startMonth, startDate, startHour, startMin),
+            end: new Date(year, endMonth, endDate, endHour, endMin)
+        };
+    }
+
+    /**
+     * Get task's scheduled time by finding its time child.
+     * @returns {{ start: Date, end: Date, childGuid: string }} or null
+     */
+    async getTaskSchedule(taskGuid) {
+        const journal = await this.getTodayJournal();
+        if (!journal) return null;
+
+        try {
+            const items = await journal.getLineItems();
+            // Find children of this task
+            const children = items.filter(i => i.parent_guid === taskGuid);
+
+            for (const child of children) {
+                if (child.type !== 'text') continue;
+                const segments = child.segments || [];
+                const text = segments.map(s => s.type === 'text' ? (s.text || '') : '').join('');
+                const timeRange = this.parseTimeRange(text);
+                if (timeRange) {
+                    return { ...timeRange, childGuid: child.guid };
+                }
+            }
+            return null;
+        } catch (e) {
+            console.error('[PlannerHub] Error getting task schedule:', e);
+            return null;
+        }
+    }
+
+    /**
+     * Schedule a task by creating/updating its time child.
+     * @param {string} taskGuid - The task GUID
+     * @param {Date|string} start - Start time (Date or "HH:MM")
+     * @param {Date|string} [end] - End time (defaults to start + 1hr)
+     */
+    async scheduleTask(taskGuid, start, end = null) {
+        const journal = await this.getTodayJournal();
+        if (!journal) return false;
+
+        try {
+            const items = await journal.getLineItems();
+            const task = items.find(i => i.guid === taskGuid);
+            if (!task) return false;
+
+            // Parse start time
+            let startDate;
+            if (start instanceof Date) {
+                startDate = start;
+            } else if (typeof start === 'string') {
+                // Parse "HH:MM" format
+                const [hours, mins] = start.split(':').map(Number);
+                startDate = new Date();
+                startDate.setHours(hours, mins, 0, 0);
+            } else {
+                return false;
+            }
+
+            // Parse or calculate end time
+            let endDate;
+            if (end instanceof Date) {
+                endDate = end;
+            } else if (typeof end === 'string') {
+                const [hours, mins] = end.split(':').map(Number);
+                endDate = new Date();
+                endDate.setHours(hours, mins, 0, 0);
+            } else {
+                // Default: start + 1 hour
+                endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+            }
+
+            const timeText = this.formatTimeRange(startDate, endDate);
+
+            // Find any existing text child under task (reuse even if empty)
+            const children = items.filter(i => i.parent_guid === taskGuid && i.type === 'text');
+            if (children.length > 0) {
+                // Reuse the first text child
+                children[0].setSegments([{ type: 'text', text: timeText }]);
+                return true;
+            }
+
+            // Create new time child under task
+            const newChild = await journal.createLineItem(task, null, 'text');
+            if (newChild) {
+                newChild.setSegments([{ type: 'text', text: timeText }]);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('[PlannerHub] Error scheduling task:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Remove schedule from a task (clear time child).
+     */
+    async unscheduleTask(taskGuid) {
+        const journal = await this.getTodayJournal();
+        if (!journal) return false;
+
+        try {
+            const existing = await this.getTaskSchedule(taskGuid);
+            if (!existing) return true; // Already unscheduled
+
+            const items = await journal.getLineItems();
+            const child = items.find(i => i.guid === existing.childGuid);
+            if (child) {
+                // Can't delete, so clear segments
+                child.setSegments([]);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error('[PlannerHub] Error unscheduling task:', e);
+            return false;
+        }
+    }
+
+    // =========================================================================
+    // Timeline View (Phase 2)
+    // =========================================================================
+
+    /**
+     * Get tasks that have explicit time schedules.
+     */
+    async getScheduledTasks() {
+        const tasks = await this.getPlannerHubTasks();
+        const scheduled = [];
+
+        for (const task of tasks) {
+            const schedule = await this.getTaskSchedule(task.guid);
+            if (schedule) {
+                scheduled.push({
+                    ...task,
+                    start: schedule.start,
+                    end: schedule.end,
+                    type: 'scheduled'
+                });
+            }
+        }
+
+        // Sort by start time
+        scheduled.sort((a, b) => a.start.getTime() - b.start.getTime());
+        return scheduled;
+    }
+
+    /**
+     * Get tasks without explicit time schedules.
+     */
+    async getUnscheduledTasks() {
+        const tasks = await this.getPlannerHubTasks();
+        const unscheduled = [];
+
+        for (const task of tasks) {
+            const schedule = await this.getTaskSchedule(task.guid);
+            if (!schedule) {
+                unscheduled.push({
+                    ...task,
+                    type: 'unscheduled'
+                });
+            }
+        }
+
+        return unscheduled;
+    }
+
+    /**
+     * Get unified timeline view with auto-fill for unscheduled tasks.
+     * @param {Object} opts - Options
+     * @param {string} opts.workdayStart - Start of workday (default "09:00")
+     * @param {string} opts.workdayEnd - End of workday (default "18:00")
+     * @param {number} opts.defaultDuration - Default task duration in minutes (default 60)
+     * @param {boolean} opts.includeCalendar - Merge calendar events (default true)
+     * @param {boolean} opts.includeCompleted - Include done tasks (default false)
+     */
+    async getTimelineView(opts = {}) {
+        const {
+            workdayStart = '09:00',
+            workdayEnd = '18:00',
+            defaultDuration = 60,
+            includeCalendar = true,
+            includeCompleted = false
+        } = opts;
+
+        // Parse workday bounds
+        const [startH, startM] = workdayStart.split(':').map(Number);
+        const [endH, endM] = workdayEnd.split(':').map(Number);
+        const today = new Date();
+        const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), startH, startM);
+        const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), endH, endM);
+
+        // Collect all blocked time slots
+        const blockedSlots = [];
+
+        // 1. Get scheduled tasks
+        const scheduled = await this.getScheduledTasks();
+        for (const task of scheduled) {
+            if (!includeCompleted && task.status === 'done') continue;
+            blockedSlots.push({
+                ...task,
+                type: 'scheduled'
+            });
+        }
+
+        // 2. Get calendar events (if available and requested)
+        if (includeCalendar && window.calendarHub?.getTodayEvents) {
+            try {
+                const events = await window.calendarHub.getTodayEvents();
+                for (const event of events) {
+                    blockedSlots.push({
+                        guid: event.guid,
+                        text: event.title || event.text,
+                        start: new Date(event.start),
+                        end: new Date(event.end),
+                        type: 'calendar',
+                        calendarEvent: event
+                    });
+                }
+            } catch (e) {
+                // Calendar not available, continue without it
+            }
+        }
+
+        // Sort blocked slots by start time
+        blockedSlots.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+        // 3. Get unscheduled tasks
+        let unscheduled = await this.getUnscheduledTasks();
+        if (!includeCompleted) {
+            unscheduled = unscheduled.filter(t => t.status !== 'done');
+        }
+
+        // 4. Find gaps and place unscheduled tasks
+        const timeline = [...blockedSlots];
+        let currentTime = dayStart.getTime();
+
+        for (const task of unscheduled) {
+            // Find next gap
+            let placed = false;
+
+            while (currentTime < dayEnd.getTime() && !placed) {
+                const slotStart = new Date(currentTime);
+                const slotEnd = new Date(currentTime + defaultDuration * 60 * 1000);
+
+                // Check if this slot conflicts with any blocked slot
+                const conflict = blockedSlots.find(b =>
+                    (slotStart < b.end && slotEnd > b.start)
+                );
+
+                if (conflict) {
+                    // Move past this conflict
+                    currentTime = conflict.end.getTime();
+                } else {
+                    // Place task here
+                    timeline.push({
+                        ...task,
+                        start: slotStart,
+                        end: slotEnd,
+                        type: 'auto'
+                    });
+                    currentTime = slotEnd.getTime();
+                    placed = true;
+                }
+            }
+
+            // If couldn't place within workday, add at end as overflow
+            if (!placed) {
+                const overflowStart = new Date(currentTime);
+                const overflowEnd = new Date(currentTime + defaultDuration * 60 * 1000);
+                timeline.push({
+                    ...task,
+                    start: overflowStart,
+                    end: overflowEnd,
+                    type: 'overflow'
+                });
+                currentTime = overflowEnd.getTime();
+            }
+        }
+
+        // Sort final timeline by start time
+        timeline.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+        return timeline;
+    }
+
+    // =========================================================================
+    // Move Task After (Phase 2)
+    // =========================================================================
+
+    /**
+     * Move a task to be after another task in the list.
+     * For unscheduled tasks, this changes their order.
+     * @param {string} taskGuid - Task to move
+     * @param {string} afterGuid - Task to place after (null = move to top)
+     */
+    async moveTaskAfter(taskGuid, afterGuid) {
+        // For now, we use swap-based reordering
+        // This moves taskGuid to be immediately after afterGuid
+        const journal = await this.getTodayJournal();
+        if (!journal) return false;
+
+        try {
+            const { sectionItems } = await this.findOrCreatePlannerSection(journal);
+
+            // Find current positions
+            const taskIndex = sectionItems.findIndex(i => i.guid === taskGuid);
+            const afterIndex = afterGuid
+                ? sectionItems.findIndex(i => i.guid === afterGuid)
+                : -1;
+
+            if (taskIndex === -1) return false;
+            if (afterGuid && afterIndex === -1) return false;
+
+            // Target position is afterIndex + 1
+            const targetIndex = afterIndex + 1;
+
+            if (taskIndex === targetIndex) return true; // Already in position
+
+            // Swap step by step to move task to target
+            if (taskIndex > targetIndex) {
+                // Move up: swap with each item above until in position
+                for (let i = taskIndex; i > targetIndex; i--) {
+                    const guidA = sectionItems[i].guid;
+                    const guidB = sectionItems[i - 1].guid;
+                    await this.swapPlanTasksByGuid(guidA, guidB);
+                }
+            } else {
+                // Move down: swap with each item below until in position
+                for (let i = taskIndex; i < targetIndex - 1; i++) {
+                    const guidA = sectionItems[i].guid;
+                    const guidB = sectionItems[i + 1].guid;
+                    await this.swapPlanTasksByGuid(guidA, guidB);
+                }
+            }
+
+            return true;
+        } catch (e) {
+            console.error('[PlannerHub] Error moving task:', e);
+            return false;
+        }
+    }
+
+    // =========================================================================
     // Add to Today
     // =========================================================================
 
@@ -1047,7 +1740,7 @@ class Plugin extends CollectionPlugin {
      */
     async addAllToPlan(daysBack) {
         const tasks = await this.getJournalTasks(daysBack);
-        const incompleteTasks = tasks.filter(t => !t.done);
+        const incompleteTasks = tasks.filter(t => t.status !== 'done');
 
         let added = 0;
         for (const task of incompleteTasks) {
@@ -1100,7 +1793,7 @@ class Plugin extends CollectionPlugin {
 
     async getWhatsNext() {
         const tasks = await this.getTodayTasks();
-        const nextTask = tasks.find(t => !t.done);
+        const nextTask = tasks.find(t => t.status !== 'done');
 
         if (nextTask) {
             // If linked to issue, get issue details
@@ -1240,7 +1933,7 @@ class Plugin extends CollectionPlugin {
                             <span>issues queued</span>
                         </div>
                         <div class="planner-stat">
-                            <span class="planner-stat-value">${dailyNoteTasks.filter(t => !t.done).length}</span>
+                            <span class="planner-stat-value">${dailyNoteTasks.filter(t => t.status !== 'done').length}</span>
                             <span>in daily note</span>
                         </div>
                     </div>
@@ -1302,7 +1995,7 @@ class Plugin extends CollectionPlugin {
 
     renderDailyNoteColumn(tasks, dateStr, daysBack, plannedGuids) {
         // Filter out completed and already-planned tasks for the add all count
-        const addableTasks = tasks.filter(t => !t.done && !plannedGuids.has(t.guid));
+        const addableTasks = tasks.filter(t => t.status !== 'done' && !plannedGuids.has(t.guid));
 
         const cardsHtml = tasks.length > 0
             ? tasks.map(task => this.renderDailyNoteTaskCard(task, plannedGuids.has(task.guid))).join('')
@@ -1354,13 +2047,14 @@ class Plugin extends CollectionPlugin {
             titleHtml = '<span class="planner-empty-task">(empty task)</span>';
         }
 
-        const cardClass = `planner-card daily-note-task ${task.done ? 'done' : ''} ${isInPlan ? 'in-plan' : ''}`;
-        const showAddButton = !task.done && !isInPlan;
+        const isDone = task.status === 'done';
+        const cardClass = `planner-card daily-note-task ${isDone ? 'done' : ''} ${isInPlan ? 'in-plan' : ''}`;
+        const showAddButton = !isDone && !isInPlan;
 
         return `
             <div class="${cardClass}" data-guid="${task.guid}" data-type="daily-note-task">
                 <div class="planner-card-header">
-                    <div class="planner-card-checkbox" ${task.done ? 'style="pointer-events:none"' : ''}></div>
+                    <div class="planner-card-checkbox" ${isDone ? 'style="pointer-events:none"' : ''}></div>
                     <div class="planner-card-title">${titleHtml}</div>
                     ${showAddButton ? `
                         <div class="planner-card-actions">
@@ -1449,9 +2143,10 @@ class Plugin extends CollectionPlugin {
 
         const isFirst = index === 0;
         const isLast = index === total - 1;
+        const isDone = task.status === 'done';
 
         return `
-            <div class="planner-card task ${task.done ? 'done' : ''}" data-guid="${task.guid}" data-type="task" data-index="${index}">
+            <div class="planner-card task ${isDone ? 'done' : ''}" data-guid="${task.guid}" data-type="task" data-index="${index}">
                 <div class="planner-card-header">
                     <div class="planner-card-checkbox" data-action="toggle"></div>
                     <div class="planner-card-title">${titleHtml}</div>
