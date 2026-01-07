@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.7';
 /**
  * Flow - Your Focus Companion
  *
@@ -73,7 +73,7 @@ const FLOW_CSS = `
        ======================================== */
     .flow-compact {
         position: fixed;
-        bottom: 20px;
+        bottom: 30px;
         right: 20px;
         width: 320px;
         background: var(--bg-default, #1a1a1a);
@@ -344,9 +344,8 @@ const FLOW_CSS = `
        ======================================== */
     .flow-full {
         position: fixed;
-        top: 20px;
+        bottom: 30px;
         right: 20px;
-        bottom: 20px;
         width: 420px;
         background: var(--bg-default, #1a1a1a);
         border: 1px solid var(--border-default, rgba(255,255,255,0.08));
@@ -382,13 +381,11 @@ const FLOW_CSS = `
     }
 
     .flow-full-body {
-        flex: 1;
         display: flex;
         overflow: hidden;
     }
 
     .flow-full-main {
-        flex: 1;
         padding: 24px;
         display: flex;
         flex-direction: column;
@@ -695,6 +692,11 @@ const FLOW_CSS = `
         color: #4f9eed;
     }
 
+    /* Linked issue teal styling (matches PlannerHub) */
+    .flow-link {
+        color: color(display-p3 0.396 0.784 0.733);
+    }
+
     /* Idle state */
     .flow-idle-message {
         text-align: center;
@@ -771,7 +773,7 @@ class Plugin extends AppPlugin {
     async onLoad() {
         // Initialize state
         this.mode = 'status'; // 'status' | 'compact' | 'full'
-        this.session = null;  // { taskGuid, taskText, startTime, pausedTime, totalPausedMs, isPaused }
+        this.session = null;  // { taskGuid, task, startTime, pausedTime, totalPausedMs, isPaused }
         this.timerInterval = null;
         this.overlay = null;
         this.statusBarItem = null;
@@ -896,12 +898,12 @@ class Plugin extends AppPlugin {
 
         const elapsed = this.getElapsedTime();
         const timeStr = this.formatTime(elapsed);
-        const taskName = this.truncate(this.session.taskText || 'Working...', 20);
+        const taskLabel = this.session.task ? this.formatTaskTitle(this.session.task) : 'Working...';
 
         return `
             <span class="flow-status-bar">
                 <span class="flow-status-dot ${dotClass}"></span>
-                <span class="flow-status-task">${this.escapeHtml(taskName)}</span>
+                <span class="flow-status-task">${taskLabel}</span>
                 <span class="flow-status-time ${timeClass}">${timeStr}</span>
             </span>
         `;
@@ -912,7 +914,7 @@ class Plugin extends AppPlugin {
             this.statusBarItem.setHtmlLabel(this.buildStatusBarLabel());
 
             const tooltip = this.session
-                ? `${this.session.taskText || 'Working'} - ${this.session.isPaused ? 'Paused' : 'In progress'}`
+                ? `${this.session.task?.text || this.session.task?.linkedIssueTitle || 'Working'} - ${this.session.isPaused ? 'Paused' : 'In progress'}`
                 : 'Flow - Click to start a session';
             this.statusBarItem.setTooltip(tooltip);
         }
@@ -942,7 +944,7 @@ class Plugin extends AppPlugin {
     // =========================================================================
 
     async startSession(taskGuid = null) {
-        let taskText = 'Focus session';
+        let task = { text: 'Focus session', linkedIssueTitle: null };
         let actualGuid = taskGuid;
 
         // If no task specified, get the next one from PlannerHub
@@ -951,14 +953,14 @@ class Plugin extends AppPlugin {
             const nextTask = tasks.find(t => t.status !== 'done');
             if (nextTask) {
                 actualGuid = nextTask.guid;
-                taskText = nextTask.text || nextTask.linkedIssueTitle || 'Task';
+                task = { text: nextTask.text, linkedIssueTitle: nextTask.linkedIssueTitle };
             }
         } else if (taskGuid && window.plannerHub) {
             // Get task details
             const tasks = await window.plannerHub.getPlannerHubTasks();
-            const task = tasks.find(t => t.guid === taskGuid);
-            if (task) {
-                taskText = task.text || task.linkedIssueTitle || 'Task';
+            const foundTask = tasks.find(t => t.guid === taskGuid);
+            if (foundTask) {
+                task = { text: foundTask.text, linkedIssueTitle: foundTask.linkedIssueTitle };
             }
         }
 
@@ -969,14 +971,15 @@ class Plugin extends AppPlugin {
 
         this.session = {
             taskGuid: actualGuid,
-            taskText,
+            task, // Store full task object for formatTaskTitle
             startTime: Date.now(),
             pausedTime: null,
             totalPausedMs: 0,
             isPaused: false
         };
 
-        console.log(`[Flow] Session started: ${taskText}`);
+        const taskLabel = task.text || task.linkedIssueTitle || 'Task';
+        console.log(`[Flow] Session started: ${taskLabel}`);
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
 
@@ -1120,7 +1123,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="expand" title="Expand">
-                            <span class="ti ti-arrows-maximize"></span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -1128,7 +1131,7 @@ class Plugin extends AppPlugin {
                     </div>
                 </div>
                 <div class="flow-compact-body">
-                    <div class="flow-compact-task">${this.escapeHtml(this.session.taskText)}</div>
+                    <div class="flow-compact-task">${this.formatTaskTitle(this.session.task, 30)}</div>
                     <div class="flow-compact-source">Focus session</div>
 
                     <div class="flow-compact-timer">
@@ -1153,7 +1156,7 @@ class Plugin extends AppPlugin {
                         <div class="flow-compact-next">
                             <div class="flow-compact-next-info">
                                 <div class="flow-compact-next-label">Next</div>
-                                <div class="flow-compact-next-task">${this.escapeHtml(this.truncate(nextTask.text || nextTask.linkedIssueTitle || 'Task', 25))}</div>
+                                <div class="flow-compact-next-task">${this.formatTaskTitle(nextTask, 25)}</div>
                             </div>
                         </div>
                     ` : ''}
@@ -1195,7 +1198,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="expand" title="Expand">
-                            <span class="ti ti-arrows-maximize"></span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -1210,7 +1213,7 @@ class Plugin extends AppPlugin {
                         <div class="flow-task-picker">
                             ${tasks.map(t => `
                                 <div class="flow-task-picker-item" data-action="start-task" data-guid="${t.guid}">
-                                    <div class="flow-task-picker-item-title">${this.escapeHtml(t.text || t.linkedIssueTitle || 'Task')}</div>
+                                    <div class="flow-task-picker-item-title">${this.formatTaskTitle(t)}</div>
                                     <div class="flow-task-picker-item-meta">${t.status}</div>
                                 </div>
                             `).join('')}
@@ -1268,7 +1271,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="compact" title="Compact">
-                            <span class="ti ti-layout-bottombar"></span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -1298,7 +1301,7 @@ class Plugin extends AppPlugin {
 
                         <div class="flow-current-task">
                             <div class="flow-current-task-label">Currently working on</div>
-                            <div class="flow-current-task-name">${this.escapeHtml(this.session.taskText)}</div>
+                            <div class="flow-current-task-name">${this.formatTaskTitle(this.session.task)}</div>
                             <div class="flow-current-task-source">Focus session</div>
                         </div>
 
@@ -1341,7 +1344,7 @@ class Plugin extends AppPlugin {
                             ${unscheduled.map(t => `
                                 <div class="flow-unscheduled-task" data-action="start-task" data-guid="${t.guid}">
                                     <span class="ti ti-checkbox"></span>
-                                    ${this.escapeHtml(this.truncate(t.text || t.linkedIssueTitle || 'Task', 20))}
+                                    ${this.formatTaskTitle(t, 20)}
                                 </div>
                             `).join('')}
                         </div>
@@ -1367,7 +1370,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="compact" title="Compact">
-                            <span class="ti ti-layout-bottombar"></span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -1396,7 +1399,7 @@ class Plugin extends AppPlugin {
                             <div class="flow-task-picker" style="margin-top: 24px;">
                                 ${tasks.map(t => `
                                     <div class="flow-task-picker-item" data-action="start-task" data-guid="${t.guid}">
-                                        <div class="flow-task-picker-item-title">${this.escapeHtml(t.text || t.linkedIssueTitle || 'Task')}</div>
+                                        <div class="flow-task-picker-item-title">${this.formatTaskTitle(t)}</div>
                                         <div class="flow-task-picker-item-meta">${t.status}</div>
                                     </div>
                                 `).join('')}
@@ -1552,5 +1555,32 @@ class Plugin extends AppPlugin {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * Format task title with linked issue in teal (matches PlannerHub).
+     * @param {Object} task - Task object with text and linkedIssueTitle
+     * @param {number} [maxLen] - Optional max length for truncation
+     * @returns {string} HTML string
+     */
+    formatTaskTitle(task, maxLen = null) {
+        let html = '';
+
+        if (task.text) {
+            const text = maxLen ? this.truncate(task.text, maxLen) : task.text;
+            html = this.escapeHtml(text);
+        }
+
+        if (task.linkedIssueTitle) {
+            const title = maxLen ? this.truncate(task.linkedIssueTitle, maxLen) : task.linkedIssueTitle;
+            const linkedHtml = `<span class="flow-link">${this.escapeHtml(title)}</span>`;
+            html += (html ? ' ' : '') + linkedHtml;
+        }
+
+        if (!html) {
+            html = '<span style="color: var(--text-muted); font-style: italic;">Untitled task</span>';
+        }
+
+        return html;
     }
 }
