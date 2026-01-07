@@ -1,0 +1,6 @@
+{
+    "name": "PlannerHub Tests",
+    "description": "Test suite for PlannerHub - run from console with window.plannerHubTests.runAll()",
+    "icon": "ti-test-pipe",
+    "version": "1.0.0"
+}
