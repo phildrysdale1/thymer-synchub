@@ -183,7 +183,7 @@ class Plugin extends AppPlugin {
     // =========================================================================
 
     async sync({ data, ui, log, debug }) {
-        // Get config from Sync Hub record
+        // 1. Get configuration from Sync Hub record
         const collections = await data.getAllCollections();
         const syncHubCollection = collections.find(c => c.getName() === 'Sync Hub');
 
@@ -195,34 +195,22 @@ class Plugin extends AppPlugin {
         const syncHubRecords = await syncHubCollection.getAllRecords();
         const myRecord = syncHubRecords.find(r => r.text('plugin_id') === 'google-calendar-sync');
 
-        if (!myRecord) {
-            debug('Google Calendar record not found in Sync Hub');
-            return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
-        }
+        if (!myRecord) return { summary: 'Not configured', created: 0, updated: 0, changes: [] };
 
-        // Parse config for additional calendars
+        // 2. Parse calendar mappings
         const configJson = myRecord.text('config');
-        let calendarsMapping = { 'primary': 'Primary' }; // Always include primary
+        let calendarsMapping = { 'primary': 'Primary' };
         try {
             if (configJson) {
                 const config = JSON.parse(configJson);
-                // Support calendars mapping: {"calendar_id": "Label", ...}
-                if (config.calendars && typeof config.calendars === 'object') {
-                    calendarsMapping = { ...calendarsMapping, ...config.calendars };
-                }
+                if (config.calendars) calendarsMapping = { ...calendarsMapping, ...config.calendars };
             }
-        } catch (e) {
-            debug('Could not parse config JSON');
-        }
+        } catch (e) { debug('Could not parse config JSON'); }
 
-        // Token field contains refresh_token and token_endpoint
+        // 3. Handle authentication
         const tokenJson = myRecord.text('token');
         const lastRun = myRecord.prop('last_run')?.date();
-
-        if (!tokenJson) {
-            debug('No token - use "Connect Google Calendar" command');
-            return { summary: 'Not connected', created: 0, updated: 0, changes: [] };
-        }
+        if (!tokenJson) return { summary: 'Not connected', created: 0, updated: 0, changes: [] };
 
         let tokenData;
         try {
@@ -237,7 +225,6 @@ class Plugin extends AppPlugin {
             return { summary: 'Invalid token', created: 0, updated: 0, changes: [] };
         }
 
-        // Get fresh access token from thymer-auth
         let accessToken;
         try {
             accessToken = await this.getAccessToken(tokenData, { log, debug });
@@ -246,53 +233,80 @@ class Plugin extends AppPlugin {
             return { summary: 'Auth failed', created: 0, updated: 0, changes: [] };
         }
 
-        // Find Calendar collection
+        // 4. Find the Calendar collection
         const calendarCollection = collections.find(c => c.getName() === 'Calendar');
+        if (!calendarCollection) return { summary: 'Calendar collection missing', created: 0, updated: 0, changes: [] };
 
-        if (!calendarCollection) {
-            log('Calendar collection not found');
-            return { summary: 'Calendar collection not found', created: 0, updated: 0, changes: [] };
-        }
-
-        // Determine sync window
-        // For incremental: sync since last_run
-        // For full: sync past 7 days + future 30 days
+        // 5. Determine sync window
         const now = new Date();
+        const isFullSync = !lastRun || this.forceFullSync;
         let timeMin, timeMax;
 
-        if (lastRun && !this.forceFullSync) {
-            // Incremental: events updated since last run
-            // But Google Calendar doesn't have 'updatedMin' for events list
-            // So we fetch a rolling window and let dedup handle it
-            debug(`Incremental sync since: ${lastRun.toISOString()}`);
-            timeMin = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days ago
-            timeMax = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days ahead
+        if (!isFullSync) {
+            // Incremental sync window
+            timeMin = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            timeMax = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
         } else {
-            debug('Full sync');
-            timeMin = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
-            timeMax = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000); // 90 days ahead
+            // Full sync window
+            timeMin = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            timeMax = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
         }
 
-        // Fetch events
+        // 6. Fetch and process events
         try {
             const events = await this.fetchEvents(accessToken, timeMin, timeMax, calendarsMapping, { log, debug });
-            debug(`Fetched ${events.length} events`);
-
             const result = await this.processEvents(events, calendarCollection, data, calendarsMapping, { log, debug });
 
-            const summary = result.created > 0 || result.updated > 0
-                ? `${result.created} new, ${result.updated} updated`
-                : 'No changes';
+            // 7. Handle Deleted Events (ONLY DURING FULL SYNC)
+            let flaggedCount = 0;
+            if (isFullSync) {
+                debug('Performing full sync cleanup (soft delete check)');
+                const localRecords = await calendarCollection.getAllRecords();
+                const googleRecords = localRecords.filter(r => r.text('source') === 'google');
+                const fetchedIds = new Set(events.map(e => `gcal_${e.id}`));
+
+                for (const record of googleRecords) {
+                    const extId = record.text('external_id');
+                    const currentTitle = record.text('title') || record.getName() || '';
+
+                    if (extId && !fetchedIds.has(extId) && !currentTitle.startsWith('🗑 ')) {
+                        // We modify ONLY the specific fields we want to change.
+                        // This leaves time, location, attendees, and description untouched.
+
+                        const flaggedTitle = `🗑 ${currentTitle}`;
+
+                        // 1. Update the title field
+                        this.setField(record, 'title', flaggedTitle);
+
+                        // 2. Update the record name for the UI
+                        if (typeof record.setName === 'function') {
+                            record.setName(flaggedTitle);
+                        }
+
+                        // 3. Update the status
+                        this.setField(record, 'status', 'cancelled');
+
+                        flaggedCount++;
+                        debug(`Flagged deleted event: ${currentTitle} (all other data preserved)`);
+                    }
+                }
+            }
+
+            // 8. Summary
+            const summaryParts = [];
+            if (result.created > 0) summaryParts.push(`${result.created} new`);
+            if (result.updated > 0) summaryParts.push(`${result.updated} updated`);
+            if (flaggedCount > 0) summaryParts.push(`${flaggedCount} flagged`);
 
             return {
-                summary,
+                summary: summaryParts.length > 0 ? summaryParts.join(', ') : 'No changes',
                 created: result.created,
                 updated: result.updated,
                 changes: result.changes,
             };
         } catch (e) {
-            log(`Fetch failed: ${e.message}`);
-            return { summary: 'Fetch failed', created: 0, updated: 0, changes: [] };
+            log(`Sync failed: ${e.message}`);
+            return { summary: 'Sync failed', created: 0, updated: 0, changes: [] };
         }
     }
 
@@ -617,6 +631,14 @@ class Plugin extends AppPlugin {
     }
 
     setRecordFields(record, data) {
+        // Set the main title field explicitly
+        this.setField(record, 'title', data.title);
+
+        // Also update the display name of the record
+        if (typeof record.setName === 'function') {
+            record.setName(data.title);
+        }
+
         this.setField(record, 'external_id', data.external_id);
         this.setField(record, 'source', data.source);
         this.setField(record, 'calendar', data.calendar);
@@ -636,14 +658,19 @@ class Plugin extends AppPlugin {
      * More reliable than comparing Google's updated timestamp.
      */
     hasContentChanged(existingRecord, newData) {
-        // Compare title
-        if (existingRecord.getName() !== newData.title) return true;
+        /// Compare the title field
+        const currentTitle = (existingRecord.text('title') || '').trim();
+        const newTitle = (newData.title || '').trim();
 
-        // Compare text fields (simple string comparison)
+        if (currentTitle !== newTitle) {
+            return true; // Change detected in title
+        }
+
+        // Compare text fields
         const textFields = ['location', 'attendees', 'meet_link'];
         for (const field of textFields) {
-            const current = existingRecord.text(field) || '';
-            const newVal = newData[field] || '';
+            const current = (existingRecord.text(field) || '').trim();
+            const newVal = (newData[field] || '').trim();
             if (current !== newVal) return true;
         }
 
