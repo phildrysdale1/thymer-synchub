@@ -768,16 +768,39 @@ const FLOW_CSS = `
 `;
 
 class Plugin extends AppPlugin {
-    constructor() {
-        super();
+    async onLoad() {
+        // Initialize state
         this.mode = 'status'; // 'status' | 'compact' | 'full'
         this.session = null;  // { taskGuid, taskText, startTime, pausedTime, totalPausedMs, isPaused }
         this.timerInterval = null;
         this.overlay = null;
         this.statusBarItem = null;
+
+        // Wait for plannerHub to be available
+        if (window.plannerHub) {
+            this.initialize();
+        } else {
+            // Wait a bit for plannerHub
+            const checkInterval = setInterval(() => {
+                if (window.plannerHub) {
+                    clearInterval(checkInterval);
+                    this.initialize();
+                }
+            }, 100);
+            // Timeout after 5 seconds - initialize anyway
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                if (!this.initialized) {
+                    this.initialize();
+                }
+            }, 5000);
+        }
     }
 
-    async onLoad() {
+    initialize() {
+        if (this.initialized) return;
+        this.initialized = true;
+
         // Inject CSS
         this.injectCSS();
 
