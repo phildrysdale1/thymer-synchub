@@ -26,6 +26,32 @@ const record = records.find(r => r.guid === recordGuid);
 
 This is documented in the Thymer legacy plugin with the comment: "might need a moment to sync".
 
+### Line Items Have the Same Issue
+
+After `createLineItem()`, subsequent `getLineItems()` calls may not immediately see the new item:
+
+```javascript
+// Create heading
+const heading = await journal.createLineItem(null, lastItem, 'heading');
+
+// PROBLEM: getLineItems() might not see the heading yet!
+const items = await journal.getLineItems();
+const found = items.find(i => i.guid === heading.guid); // might be null!
+```
+
+**Workaround**: Cache the GUID of created items to avoid relying on search:
+
+```javascript
+const headingCache = new Map(); // journalGuid -> headingGuid
+
+// After creating
+headingCache.set(journal.guid, heading.guid);
+
+// On subsequent calls, find by cached GUID first
+const cachedGuid = headingCache.get(journal.guid);
+const heading = items.find(i => i.guid === cachedGuid);
+```
+
 ## Choice Fields
 
 ### setChoice Matches by Label
@@ -265,9 +291,22 @@ const doc = Object.values(g_universe.itemsByGuid)
 const titleSegments = doc.state.kv?.title;  // ['text', 'Page Title']
 ```
 
-### Task Completion
+### Task Status Values
 
-**Important:** Task completion is NOT in `state.done` (always undefined). It's in `state.props.done`:
+Task status is stored in `state.props.done` as a number:
+
+| `props.done` | Status | Icon |
+|--------------|--------|------|
+| `undefined` | Todo (unchecked) | - |
+| `0` | Unchecked (explicit) | - |
+| `1` | In Progress | `ti-player-play` |
+| `2` | Blocked / Waiting | `ti-player-pause` |
+| `3` | Cost related | `ti-currency-dollar` |
+| `4` | Important | `ti-alert-square` |
+| `5` | Discuss / Question | `ti-help` |
+| `6` | Alert | `ti-alert-triangle` |
+| `7` | Starred | `ti-star` |
+| `8` | Done (completed) | `ti-check` |
 
 ```javascript
 const state = g_node_data.get(element)?.r?.state;
@@ -276,7 +315,20 @@ const state = g_node_data.get(element)?.r?.state;
 const done = state.done;
 
 // RIGHT - check props.done
-const done = state.props?.done;  // Truthy when done (value may be a number like 4)
+const done = state.props?.done;
+
+// Check if truly completed
+const isCompleted = state.props?.done === 8;
+
+// Check if has any status (including in-progress, blocked, etc.)
+const hasStatus = state.props?.done !== undefined;
+```
+
+To set status via SDK:
+```javascript
+task.setMetaProperties({ done: 1 });  // Set to "In Progress"
+task.setMetaProperties({ done: 8 });  // Set to "Done"
+task.setMetaProperties({ done: null });  // Clear status (back to unchecked)
 ```
 
 ### Transclusion (References)
@@ -544,6 +596,135 @@ g_node_data.get(element) = {
 ### Pro Tip: First-Time Paste
 
 Chrome DevTools blocks pasting by default. Type `allow pasting` and press Enter first.
+
+### Inline Command Palette (cmdpal--inline)
+
+Thymer has a reusable inline autocomplete/dropdown component. Useful for quick actions:
+
+```html
+<div class="cmdpal--inline animate-open active focused-component"
+     style="position: fixed; width: 220px; z-index: 9999; top: 278px; left: 424px;">
+    <div class="cmdpal--inline-input-container" style="display:none">
+        <input class="cmdpal--inline-input" placeholder="" spellcheck="false" type="text">
+    </div>
+    <div class="autocomplete clickable">
+        <div class="vscroll-node">
+            <div class="vcontent">
+                <div data-idx="0" class="autocomplete--option autocomplete--option-selected">
+                    <span class="autocomplete--option-icon"><span class="ti ti-check"></span></span>
+                    <span class="autocomplete--option-label">Done</span>
+                    <span class="autocomplete--option-right"><span></span></span>
+                </div>
+                <div data-idx="1" class="autocomplete--option">
+                    <span class="autocomplete--option-icon"><span class="ti ti-player-play"></span></span>
+                    <span class="autocomplete--option-label">In Progress</span>
+                    <span class="autocomplete--option-right"><span></span></span>
+                </div>
+                <!-- More options... -->
+            </div>
+        </div>
+    </div>
+</div>
+```
+
+Key classes:
+- `cmdpal--inline` - Container with positioning
+- `autocomplete--option` - Each selectable item
+- `autocomplete--option-selected` - Currently highlighted
+- `autocomplete--option-icon` - Left icon (tabler icons)
+- `autocomplete--option-label` - Option text
+- `autocomplete--option-right` - Right-side content (shortcuts, badges)
+
+Positioning: Use `position: fixed` with calculated `top`/`left` based on trigger element.
+
+## Useful Debug Snippets
+
+### Inspect Today's Journal Tasks
+
+```javascript
+const journal = await window.syncHub.getTodayJournal();
+const items = await journal.getLineItems();
+
+items.forEach((item, i) => {
+    if (item.type !== 'task') return;
+
+    const segments = item.segments || [];
+    let text = '';
+    for (const seg of segments) {
+        if (seg.type === 'text') text += seg.text;
+    }
+
+    console.log(`---`);
+    console.log('Text:', text.slice(0, 50));
+    console.log('GUID:', item.guid);
+    console.log('Type:', item.type);
+    console.log('Props:', JSON.stringify(item.props));
+});
+```
+
+### Find Items by Text (e.g., headings)
+
+```javascript
+const journal = await window.syncHub.getTodayJournal();
+const items = await journal.getLineItems();
+
+items.forEach((item, i) => {
+    const segments = item.segments || [];
+    let text = '';
+    for (const seg of segments) {
+        if (seg.type === 'text') text += seg.text;
+    }
+
+    // Filter by text content
+    if (!text.toLowerCase().includes('planner')) return;
+
+    console.log(`---`);
+    console.log('Text:', text);
+    console.log('Type:', item.type);
+    console.log('parent_guid:', item.parent_guid);
+    console.log('journal.guid:', journal.guid);
+    console.log('Same parent?:', item.parent_guid === journal.guid);
+    console.log('heading_size:', item.heading_size);
+    console.log('Props:', JSON.stringify(item.props));
+});
+```
+
+### Inspect All Item Types in Journal
+
+```javascript
+const journal = await window.syncHub.getTodayJournal();
+const items = await journal.getLineItems();
+
+// Group by type
+const byType = {};
+items.forEach(item => {
+    byType[item.type] = (byType[item.type] || 0) + 1;
+});
+console.table(byType);
+```
+
+### Check Task Completion Status
+
+```javascript
+const journal = await window.syncHub.getTodayJournal();
+const items = await journal.getLineItems();
+
+items.filter(i => i.type === 'task').forEach(item => {
+    const segments = item.segments || [];
+    const text = segments.map(s => s.type === 'text' ? s.text : '').join('');
+    const status = item.props?.done;
+
+    const statusNames = {
+        undefined: 'unchecked',
+        0: 'unchecked',
+        1: 'in-progress',
+        2: 'blocked',
+        8: 'done'
+    };
+
+    console.log(`[${statusNames[status] || status}] ${text.slice(0, 40)}`);
+});
+```
 
 ## Hot Reload Development
 
