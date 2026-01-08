@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.4';
+const VERSION = 'v1.2.5';
 /**
  * Flow - Your Focus Companion
  *
@@ -482,9 +482,6 @@ class Plugin extends AppPlugin {
     }
 
     async renderFullOverlay() {
-        // Auto-select hour range based on current time
-        this.autoSelectHourRange();
-
         // Get data from PlannerHub
         let backlogTasks = [];
         let scheduledItems = [];
@@ -506,6 +503,9 @@ class Plugin extends AppPlugin {
             scheduledItems = timeline.filter(t => t.type !== 'calendar');
             calendarEvents = timeline.filter(t => t.type === 'calendar');
         }
+
+        // Auto-select hour range based on current time AND scheduled items
+        this.autoSelectHourRange(scheduledItems, calendarEvents);
 
         // Get current time info for "now" line
         const now = new Date();
@@ -626,20 +626,31 @@ class Plugin extends AppPlugin {
     }
 
     /**
-     * Auto-select hour range mode based on current time
+     * Auto-select hour range mode based on current time AND scheduled tasks
      */
-    autoSelectHourRange() {
+    autoSelectHourRange(scheduledItems = [], calendarEvents = []) {
         const currentHour = new Date().getHours();
 
-        // If current hour doesn't fit in normal (9-17), expand
-        if (currentHour < 9 || currentHour > 17) {
-            if (currentHour >= 7 && currentHour <= 21) {
-                this.hourRangeMode = 'extended';
-            } else {
-                this.hourRangeMode = 'full';
+        // Find earliest and latest hours from all items
+        let minHour = currentHour;
+        let maxHour = currentHour;
+
+        const allItems = [...scheduledItems, ...calendarEvents];
+        for (const item of allItems) {
+            if (item.start) {
+                const hour = item.start.getHours();
+                minHour = Math.min(minHour, hour);
+                maxHour = Math.max(maxHour, hour);
             }
         }
-        // Otherwise keep current mode (don't auto-shrink)
+
+        // Select mode based on the range needed
+        if (minHour < 7 || maxHour > 21) {
+            this.hourRangeMode = 'full';
+        } else if (minHour < 9 || maxHour > 17) {
+            this.hourRangeMode = 'extended';
+        }
+        // Otherwise keep current mode (default is 'normal')
     }
 
     /**
