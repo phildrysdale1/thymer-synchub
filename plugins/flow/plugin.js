@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.0';
+const VERSION = 'v1.3.1';
 /**
  * Flow - Your Focus Companion
  *
@@ -957,12 +957,22 @@ class Plugin extends AppPlugin {
             if (!taskCard) return;
 
             const guid = taskCard.dataset.guid;
-            this.draggedTask = { guid, element: taskCard };
+            const title = taskCard.querySelector('.flow-task-title, .flow-calendar-task-title')?.textContent || 'Task';
+            const estimate = taskCard.querySelector('.flow-task-estimate')?.textContent || '30m';
+
+            this.draggedTask = { guid, title, estimate, element: taskCard };
             taskCard.classList.add('dragging');
 
             // Set drag data
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', guid);
+
+            // Use a minimal drag image
+            const dragImage = document.createElement('div');
+            dragImage.style.cssText = 'position: absolute; top: -1000px;';
+            document.body.appendChild(dragImage);
+            e.dataTransfer.setDragImage(dragImage, 0, 0);
+            setTimeout(() => dragImage.remove(), 0);
 
             console.log(`[Flow] Drag start: ${guid}`);
         });
@@ -975,12 +985,12 @@ class Plugin extends AppPlugin {
             }
             this.draggedTask = null;
 
-            // Remove any drop indicators
-            calendarSlots.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+            // Remove ghost preview
+            this.removeDropGhost(calendarSlots);
             calendarSlots.classList.remove('drag-over');
         });
 
-        // Drag over calendar - allow drop and show indicator
+        // Drag over calendar - allow drop and show ghost preview
         calendarSlots.addEventListener('dragover', (e) => {
             if (!this.draggedTask) return;
 
@@ -988,8 +998,8 @@ class Plugin extends AppPlugin {
             e.dataTransfer.dropEffect = 'move';
             calendarSlots.classList.add('drag-over');
 
-            // Update drop indicator position
-            this.updateDropIndicator(calendarSlots, e.clientY);
+            // Update ghost preview position
+            this.updateDropGhost(calendarSlots, e.clientY);
         });
 
         // Drag leave
@@ -997,7 +1007,7 @@ class Plugin extends AppPlugin {
             // Only remove if leaving the container entirely
             if (!calendarSlots.contains(e.relatedTarget)) {
                 calendarSlots.classList.remove('drag-over');
-                calendarSlots.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+                this.removeDropGhost(calendarSlots);
             }
         });
 
@@ -1012,31 +1022,49 @@ class Plugin extends AppPlugin {
             }
 
             calendarSlots.classList.remove('drag-over');
-            calendarSlots.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+            this.removeDropGhost(calendarSlots);
         });
     }
 
     /**
-     * Update the drop indicator line position
+     * Show/update ghost preview of task at drop position
      */
-    updateDropIndicator(container, clientY) {
-        let indicator = container.querySelector('.drop-indicator');
-        if (!indicator) {
-            indicator = document.createElement('div');
-            indicator.className = 'drop-indicator';
-            container.appendChild(indicator);
+    updateDropGhost(container, clientY) {
+        if (!this.draggedTask) return;
+
+        let ghost = container.querySelector('.drop-ghost');
+        if (!ghost) {
+            ghost = document.createElement('div');
+            ghost.className = 'drop-ghost';
+            container.querySelector('.flow-calendar-tasks')?.appendChild(ghost);
         }
 
-        const rect = container.getBoundingClientRect();
-        const relativeY = clientY - rect.top + container.scrollTop;
-        indicator.style.top = `${relativeY}px`;
-
-        // Calculate and show time
+        // Calculate position
         const time = this.calculateDropTime(container, clientY);
-        if (time) {
-            const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-            indicator.dataset.time = timeStr;
-        }
+        if (!time) return;
+
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const startMin = (time.getHours() - range.start) * 60 + time.getMinutes();
+        const topPct = (startMin / totalMinutes) * 100;
+        const durationMin = this.estimateToMinutes(this.draggedTask.estimate) || 30;
+        const heightPct = (durationMin / totalMinutes) * 100;
+
+        const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+
+        ghost.style.top = `${topPct}%`;
+        ghost.style.height = `${heightPct}%`;
+        ghost.innerHTML = `
+            <div class="drop-ghost-title">${this.draggedTask.title}</div>
+            <div class="drop-ghost-time">${timeStr}</div>
+        `;
+    }
+
+    /**
+     * Remove ghost preview
+     */
+    removeDropGhost(container) {
+        container.querySelectorAll('.drop-ghost').forEach(el => el.remove());
     }
 
     /**
@@ -1076,8 +1104,8 @@ class Plugin extends AppPlugin {
 
         this.pinnedSlots.set(taskGuid, time);
 
-        // Re-render to show updated positions
-        this.renderOverlay();
+        // Partial refresh - only update task areas
+        this.refreshTaskViews();
     }
 
     /**
@@ -1087,7 +1115,134 @@ class Plugin extends AppPlugin {
         console.log(`[Flow] Unpinning task ${taskGuid}`);
 
         this.pinnedSlots.delete(taskGuid);
-        this.renderOverlay();
+        this.refreshTaskViews();
+    }
+
+    /**
+     * Refresh only the task-related views (backlog + calendar tasks)
+     * More efficient than full re-render
+     */
+    async refreshTaskViews() {
+        if (!this.overlay || this.mode !== 'full') {
+            this.renderOverlay();
+            return;
+        }
+
+        // Get fresh task data
+        let pinnedTasks = [];
+        let floatingTasks = [];
+
+        if (window.plannerHub) {
+            const allTasks = await window.plannerHub.getPlannerHubTasks();
+            const incompleteTasks = allTasks.filter(t => t.status !== 'done');
+
+            for (const task of incompleteTasks) {
+                const pinnedSlot = this.pinnedSlots.get(task.guid);
+                if (pinnedSlot) {
+                    pinnedTasks.push({ ...task, pinnedSlot });
+                } else {
+                    floatingTasks.push(task);
+                }
+            }
+        }
+
+        // Update backlog list
+        const backlogList = this.overlay.querySelector('.flow-backlog-list');
+        if (backlogList) {
+            backlogList.innerHTML = floatingTasks.length > 0
+                ? floatingTasks.map(t => this.renderBacklogTask(t)).join('')
+                : `<div class="flow-backlog-empty">
+                       <div class="flow-backlog-empty-icon"><span class="ti ti-checkbox"></span></div>
+                       <div class="flow-backlog-empty-text">All tasks scheduled!</div>
+                   </div>`;
+        }
+
+        // Update backlog count
+        const backlogCount = this.overlay.querySelector('.flow-section-count');
+        if (backlogCount) {
+            backlogCount.textContent = floatingTasks.length;
+        }
+
+        // Update calendar tasks layer
+        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
+        const tasksLayer = calendarSlots?.querySelector('.flow-calendar-tasks');
+        if (tasksLayer) {
+            const now = new Date();
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+
+            // Get calendar events (unchanged, but needed for render)
+            let calendarEvents = [];
+            if (window.calendarHub) {
+                const timeline = await window.plannerHub.getTimelineView({
+                    workdayStart: '07:00',
+                    workdayEnd: '21:00',
+                    includeCalendar: true
+                });
+                calendarEvents = timeline.filter(t => t.type === 'calendar');
+            }
+
+            // Re-render just the tasks layer content
+            tasksLayer.innerHTML = this.renderCalendarTasksOnly(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute);
+        }
+
+        // Re-wire drag events for new elements
+        this.wireDragDropEvents();
+    }
+
+    /**
+     * Render just the calendar tasks (without grid or now line)
+     */
+    renderCalendarTasksOnly(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const nowMinutes = (currentHour - range.start) * 60 + currentMinute;
+
+        let html = '';
+
+        // Pinned tasks
+        for (const task of pinnedTasks) {
+            const slot = task.pinnedSlot;
+            if (!slot) continue;
+
+            const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
+            const topPct = (startMin / totalMinutes) * 100;
+            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const heightPct = (durationMin / totalMinutes) * 100;
+
+            html += this.renderCalendarTask(task, topPct, heightPct, false, false);
+        }
+
+        // Calendar events
+        for (const event of calendarEvents) {
+            if (!event.start) continue;
+
+            const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
+            const topPct = (startMin / totalMinutes) * 100;
+            let durationMin = 60;
+            if (event.end) {
+                durationMin = (event.end - event.start) / 60000;
+            }
+            const heightPct = (durationMin / totalMinutes) * 100;
+
+            html += this.renderCalendarTask(event, topPct, heightPct, false, true);
+        }
+
+        // Floating tasks
+        const minSlotMinutes = 45;
+        let floatStartMin = Math.max(0, nowMinutes);
+        for (const task of floatingTasks) {
+            if (floatStartMin >= totalMinutes) break;
+
+            const topPct = (floatStartMin / totalMinutes) * 100;
+            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const heightPct = (durationMin / totalMinutes) * 100;
+
+            html += this.renderCalendarTask(task, topPct, heightPct, true, false);
+            floatStartMin += Math.max(durationMin, minSlotMinutes);
+        }
+
+        return html;
     }
 
     /**

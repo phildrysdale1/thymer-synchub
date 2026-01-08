@@ -753,37 +753,38 @@
     background: rgba(79, 158, 237, 0.03);
 }
 
-.drop-indicator {
+/* Ghost preview of task at drop position */
+.drop-ghost {
     position: absolute;
-    left: 42px;
+    left: 4px;
     right: 4px;
-    height: 2px;
-    background: #4f9eed;
+    min-height: 28px;
+    background: rgba(79, 158, 237, 0.15);
+    border: 2px dashed #4f9eed;
+    border-radius: 6px;
+    padding: 4px 8px;
     pointer-events: none;
-    z-index: 30;
-    box-shadow: 0 0 8px rgba(79, 158, 237, 0.5);
+    z-index: 25;
+    box-sizing: border-box;
+    opacity: 0.9;
+    box-shadow: 0 2px 12px rgba(79, 158, 237, 0.3);
 }
 
-.drop-indicator::before {
-    content: attr(data-time);
-    position: absolute;
-    left: -40px;
-    top: -6px;
+.drop-ghost-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: #4f9eed;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.drop-ghost-time {
     font-size: 10px;
     font-family: 'JetBrains Mono', 'SF Mono', monospace;
     color: #4f9eed;
-    font-weight: 500;
-}
-
-.drop-indicator::after {
-    content: '';
-    position: absolute;
-    left: -4px;
-    top: -4px;
-    width: 10px;
-    height: 10px;
-    background: #4f9eed;
-    border-radius: 50%;
+    margin-top: 2px;
+    font-weight: 600;
 }
 
 /* Active Session Bar */
