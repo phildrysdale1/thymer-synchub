@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.3';
+const VERSION = 'v1.3.4';
 /**
  * Flow - Your Focus Companion
  *
@@ -1168,7 +1168,7 @@ class Plugin extends AppPlugin {
     updateResizePreview(deltaY) {
         if (!this.resizingTask) return;
 
-        const { element, startHeight, startEstimate, containerHeight } = this.resizingTask;
+        const { element, startEstimate, containerHeight } = this.resizingTask;
         const range = this.hourRanges[this.hourRangeMode];
         const totalMinutes = (range.end - range.start + 1) * 60;
 
@@ -1182,14 +1182,19 @@ class Plugin extends AppPlugin {
         // Update element height
         element.style.height = `${newHeightPct}%`;
 
-        // Show time preview in element
-        const timeEl = element.querySelector('.flow-calendar-task-time');
-        if (timeEl) {
-            const hours = Math.floor(newEstimate / 60);
-            const mins = newEstimate % 60;
-            const label = hours > 0 ? `${hours}h${mins > 0 ? mins + 'm' : ''}` : `${mins}m`;
-            timeEl.textContent = `~${label}`;
+        // Format duration label
+        const hours = Math.floor(newEstimate / 60);
+        const mins = newEstimate % 60;
+        const label = hours > 0 ? `${hours}h${mins > 0 ? mins + 'm' : ''}` : `${mins}m`;
+
+        // Show floating duration label above resize handle
+        let resizeLabel = element.querySelector('.flow-resize-label');
+        if (!resizeLabel) {
+            resizeLabel = document.createElement('div');
+            resizeLabel.className = 'flow-resize-label';
+            element.appendChild(resizeLabel);
         }
+        resizeLabel.textContent = label;
     }
 
     /**

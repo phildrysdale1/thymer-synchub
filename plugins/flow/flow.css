@@ -1,5 +1,5 @@
 /* ========================================
-   FLOW PLUGIN CSS - v1.3.3
+   FLOW PLUGIN CSS - v1.3.4
    Load this in Thymer's Custom CSS settings
    ======================================== */
 
@@ -821,6 +821,24 @@
 .flow-calendar-task.resizing .flow-resize-handle {
     opacity: 1;
     background: linear-gradient(to top, rgba(79, 158, 237, 0.6), transparent);
+}
+
+/* Floating duration label during resize */
+.flow-resize-label {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #4f9eed;
+    color: #fff;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 35;
 }
 
 /* Active Session Bar */
