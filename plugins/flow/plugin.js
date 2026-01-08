@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.1';
+const VERSION = 'v1.3.2';
 /**
  * Flow - Your Focus Companion
  *
@@ -1039,24 +1039,29 @@ class Plugin extends AppPlugin {
             container.querySelector('.flow-calendar-tasks')?.appendChild(ghost);
         }
 
-        // Calculate position
-        const time = this.calculateDropTime(container, clientY);
-        if (!time) return;
+        // Calculate position (snapped to 15-min grid)
+        const startTime = this.calculateDropTime(container, clientY);
+        if (!startTime) return;
 
         const range = this.hourRanges[this.hourRangeMode];
         const totalMinutes = (range.end - range.start + 1) * 60;
-        const startMin = (time.getHours() - range.start) * 60 + time.getMinutes();
+        const startMin = (startTime.getHours() - range.start) * 60 + startTime.getMinutes();
         const topPct = (startMin / totalMinutes) * 100;
         const durationMin = this.estimateToMinutes(this.draggedTask.estimate) || 30;
         const heightPct = (durationMin / totalMinutes) * 100;
 
-        const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+        // Calculate end time
+        const endTime = new Date(startTime.getTime() + durationMin * 60000);
+
+        // Format time range: "13:15 → 14:45"
+        const startStr = `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')}`;
+        const endStr = `${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
+        const timeRange = `${startStr} → ${endStr}`;
 
         ghost.style.top = `${topPct}%`;
         ghost.style.height = `${heightPct}%`;
         ghost.innerHTML = `
-            <div class="drop-ghost-title">${this.draggedTask.title}</div>
-            <div class="drop-ghost-time">${timeStr}</div>
+            <div class="drop-ghost-time">${timeRange}</div>
         `;
     }
 
