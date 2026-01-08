@@ -742,6 +742,50 @@
     box-shadow: 0 0 8px #d4a72c;
 }
 
+/* Drag-Drop Styling */
+.flow-task-card.dragging,
+.flow-calendar-task.dragging {
+    opacity: 0.5;
+    transform: scale(0.98);
+}
+
+.flow-calendar-slots.drag-over {
+    background: rgba(79, 158, 237, 0.03);
+}
+
+.drop-indicator {
+    position: absolute;
+    left: 42px;
+    right: 4px;
+    height: 2px;
+    background: #4f9eed;
+    pointer-events: none;
+    z-index: 30;
+    box-shadow: 0 0 8px rgba(79, 158, 237, 0.5);
+}
+
+.drop-indicator::before {
+    content: attr(data-time);
+    position: absolute;
+    left: -40px;
+    top: -6px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    color: #4f9eed;
+    font-weight: 500;
+}
+
+.drop-indicator::after {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    background: #4f9eed;
+    border-radius: 50%;
+}
+
 /* Active Session Bar */
 .flow-active-bar {
     border-top: 1px solid var(--border-default, rgba(255,255,255,0.08));

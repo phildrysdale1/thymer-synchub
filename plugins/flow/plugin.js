@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.9';
+const VERSION = 'v1.3.0';
 /**
  * Flow - Your Focus Companion
  *
@@ -32,6 +32,10 @@ class Plugin extends AppPlugin {
             extended: { start: 7, end: 21 },
             full: { start: 0, end: 23 }
         };
+
+        // Drag-drop state (Phase 2)
+        this.pinnedSlots = new Map(); // taskGuid → Date (pinned time)
+        this.draggedTask = null; // Currently dragged task
 
         // Wait for plannerHub to be available
         if (window.plannerHub) {
@@ -520,12 +524,11 @@ class Plugin extends AppPlugin {
             const allTasks = await window.plannerHub.getPlannerHubTasks();
             const incompleteTasks = allTasks.filter(t => t.status !== 'done');
 
-            // Split into pinned vs floating
-            // Phase 1: All tasks are floating (no pinning storage yet)
-            // Phase 2: Check task.pinnedSlot for explicit schedule
+            // Split into pinned vs floating based on pinnedSlots map
             for (const task of incompleteTasks) {
-                if (task.pinnedSlot) {
-                    pinnedTasks.push(task);
+                const pinnedSlot = this.pinnedSlots.get(task.guid);
+                if (pinnedSlot) {
+                    pinnedTasks.push({ ...task, pinnedSlot });
                 } else {
                     floatingTasks.push(task);
                 }
@@ -819,14 +822,17 @@ class Plugin extends AppPlugin {
     renderCalendarTask(item, topPct, heightPct, isFloating, isCalendar) {
         const isActive = this.session?.taskGuid === item.guid;
         const title = this.formatTaskTitle(item);
-        const timeLabel = item.end
-            ? `${this.formatHourMin(item.start)} - ${this.formatHourMin(item.end)}`
+        const timeLabel = item.pinnedSlot
+            ? this.formatHourMin(item.pinnedSlot)
             : (item.estimate ? `~${item.estimate}` : '');
+
+        // Tasks are draggable, calendar events are not
+        const draggable = !isCalendar ? 'draggable="true"' : '';
 
         return `
             <div class="flow-calendar-task ${isFloating ? 'floating' : ''} ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
                  style="top: ${topPct}%; height: ${heightPct}%;"
-                 data-guid="${item.guid}" data-action="start-task">
+                 data-guid="${item.guid}" data-action="start-task" ${draggable}>
                 <div class="flow-calendar-task-title">${title}</div>
                 ${timeLabel ? `<div class="flow-calendar-task-time">${timeLabel}</div>` : ''}
             </div>
@@ -886,6 +892,7 @@ class Plugin extends AppPlugin {
     wireOverlayEvents() {
         if (!this.overlay) return;
 
+        // Click handlers
         this.overlay.addEventListener('click', async (e) => {
             const actionEl = e.target.closest('[data-action]');
             if (!actionEl) return;
@@ -930,6 +937,157 @@ class Plugin extends AppPlugin {
                     break;
             }
         });
+
+        // Drag-drop handlers for task scheduling
+        this.wireDragDropEvents();
+    }
+
+    /**
+     * Wire up drag-drop events for scheduling tasks
+     */
+    wireDragDropEvents() {
+        if (!this.overlay) return;
+
+        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
+        if (!calendarSlots) return;
+
+        // Drag start on task cards
+        this.overlay.addEventListener('dragstart', (e) => {
+            const taskCard = e.target.closest('.flow-task-card, .flow-calendar-task');
+            if (!taskCard) return;
+
+            const guid = taskCard.dataset.guid;
+            this.draggedTask = { guid, element: taskCard };
+            taskCard.classList.add('dragging');
+
+            // Set drag data
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', guid);
+
+            console.log(`[Flow] Drag start: ${guid}`);
+        });
+
+        // Drag end
+        this.overlay.addEventListener('dragend', (e) => {
+            const taskCard = e.target.closest('.flow-task-card, .flow-calendar-task');
+            if (taskCard) {
+                taskCard.classList.remove('dragging');
+            }
+            this.draggedTask = null;
+
+            // Remove any drop indicators
+            calendarSlots.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+            calendarSlots.classList.remove('drag-over');
+        });
+
+        // Drag over calendar - allow drop and show indicator
+        calendarSlots.addEventListener('dragover', (e) => {
+            if (!this.draggedTask) return;
+
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            calendarSlots.classList.add('drag-over');
+
+            // Update drop indicator position
+            this.updateDropIndicator(calendarSlots, e.clientY);
+        });
+
+        // Drag leave
+        calendarSlots.addEventListener('dragleave', (e) => {
+            // Only remove if leaving the container entirely
+            if (!calendarSlots.contains(e.relatedTarget)) {
+                calendarSlots.classList.remove('drag-over');
+                calendarSlots.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+            }
+        });
+
+        // Drop - pin task to time slot
+        calendarSlots.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (!this.draggedTask) return;
+
+            const time = this.calculateDropTime(calendarSlots, e.clientY);
+            if (time) {
+                this.pinTaskToSlot(this.draggedTask.guid, time);
+            }
+
+            calendarSlots.classList.remove('drag-over');
+            calendarSlots.querySelectorAll('.drop-indicator').forEach(el => el.remove());
+        });
+    }
+
+    /**
+     * Update the drop indicator line position
+     */
+    updateDropIndicator(container, clientY) {
+        let indicator = container.querySelector('.drop-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'drop-indicator';
+            container.appendChild(indicator);
+        }
+
+        const rect = container.getBoundingClientRect();
+        const relativeY = clientY - rect.top + container.scrollTop;
+        indicator.style.top = `${relativeY}px`;
+
+        // Calculate and show time
+        const time = this.calculateDropTime(container, clientY);
+        if (time) {
+            const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+            indicator.dataset.time = timeStr;
+        }
+    }
+
+    /**
+     * Calculate the time from drop position
+     */
+    calculateDropTime(container, clientY) {
+        const rect = container.getBoundingClientRect();
+        const scrollTop = container.scrollTop;
+        const relativeY = clientY - rect.top + scrollTop;
+        const containerHeight = container.scrollHeight;
+
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+
+        // Calculate minutes from start of range
+        const minutesFromStart = (relativeY / containerHeight) * totalMinutes;
+
+        // Snap to 15-minute intervals
+        const snappedMinutes = Math.round(minutesFromStart / 15) * 15;
+
+        // Convert to time
+        const hours = range.start + Math.floor(snappedMinutes / 60);
+        const minutes = snappedMinutes % 60;
+
+        // Create Date for today with this time
+        const now = new Date();
+        const dropTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+
+        return dropTime;
+    }
+
+    /**
+     * Pin a task to a specific time slot
+     */
+    pinTaskToSlot(taskGuid, time) {
+        console.log(`[Flow] Pinning task ${taskGuid} to ${time.toLocaleTimeString()}`);
+
+        this.pinnedSlots.set(taskGuid, time);
+
+        // Re-render to show updated positions
+        this.renderOverlay();
+    }
+
+    /**
+     * Unpin a task (return to floating)
+     */
+    unpinTask(taskGuid) {
+        console.log(`[Flow] Unpinning task ${taskGuid}`);
+
+        this.pinnedSlots.delete(taskGuid);
+        this.renderOverlay();
     }
 
     /**
