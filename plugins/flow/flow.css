@@ -1,5 +1,5 @@
 /* ========================================
-   FLOW PLUGIN CSS - v1.3.4
+   FLOW PLUGIN CSS - v1.3.5
    Load this in Thymer's Custom CSS settings
    ======================================== */
 
@@ -535,6 +535,49 @@
 .flow-task-status-dot.in-progress { background: #d29922; }
 .flow-task-status-dot.next { background: #4f9eed; }
 
+/* Planned badge on tasks */
+.flow-task-planned-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: #4f9eed;
+    background: rgba(79, 158, 237, 0.12);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+.flow-task-planned-badge .ti {
+    font-size: 10px;
+}
+
+/* Hide planned toggle button */
+.flow-hide-planned-btn {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border-default, rgba(255,255,255,0.08));
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.flow-hide-planned-btn:hover {
+    border-color: var(--text-muted);
+    color: var(--text-default);
+}
+
+.flow-hide-planned-btn.active {
+    background: rgba(79, 158, 237, 0.12);
+    border-color: rgba(79, 158, 237, 0.3);
+    color: #4f9eed;
+}
+
 /* Calendar Section */
 .flow-calendar {
     padding: 16px;
@@ -767,17 +810,57 @@
     z-index: 25;
     box-sizing: border-box;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     justify-content: center;
+    gap: 2px;
     box-shadow: 0 2px 12px rgba(79, 158, 237, 0.25);
 }
 
+.drop-ghost-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-default);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .drop-ghost-time {
-    font-size: 13px;
+    font-size: 10px;
     font-family: 'JetBrains Mono', 'SF Mono', monospace;
     color: #4f9eed;
     font-weight: 600;
     letter-spacing: 0.5px;
+}
+
+/* Slot-only ghost (for backlog drags - card follows mouse) */
+.drop-ghost.slot-only {
+    align-items: center;
+}
+
+.drop-ghost.slot-only .drop-ghost-time {
+    font-size: 12px;
+}
+
+/* Floating drag preview (follows mouse for backlog drags) */
+.flow-drag-preview {
+    position: fixed;
+    width: 240px;
+    background: var(--bg-hover, #242424);
+    border: 1px solid #4f9eed;
+    border-radius: 8px;
+    padding: 10px 12px;
+    pointer-events: none;
+    z-index: 10001;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(79, 158, 237, 0.3);
+    opacity: 0.95;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.flow-drag-preview .flow-task-estimate {
+    pointer-events: none;
 }
 
 /* Resize Handle - appears on hover at bottom of task */

@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.4';
+const VERSION = 'v1.3.6';
 /**
  * Flow - Your Focus Companion
  *
@@ -26,31 +26,33 @@ class Plugin extends AppPlugin {
 
         // Planning view state
         this.hourRangeMode = 'normal'; // 'normal' (9-17), 'extended' (7-21), 'full' (0-23)
-        this.planningRefreshInterval = null; // 5-minute refresh for "now" line and floating tasks
+        this.planningRefreshInterval = null;
         this.hourRanges = {
             normal: { start: 9, end: 17 },
             extended: { start: 7, end: 21 },
             full: { start: 0, end: 23 }
         };
 
-        // Drag-drop state (Phase 2)
+        // Task scheduling state
         this.pinnedSlots = new Map(); // taskGuid → Date (pinned time)
-        this.taskEstimates = new Map(); // taskGuid → minutes (adjusted estimates)
-        this.draggedTask = null; // Currently dragged task
-        this.resizingTask = null; // Currently resizing task { guid, element, startY, startHeight, startEstimate }
+        this.taskEstimates = new Map(); // taskGuid → minutes (override estimates)
+        this.hidePlanned = false; // Toggle to hide planned tasks from backlog
+
+        // Unified interaction state (drag or resize)
+        this.interaction = null; // { type: 'drag'|'resize', taskGuid, ... }
+        this.dragPreview = null; // Floating card during drag
+        this.dragGhost = null; // Ghost showing drop target
 
         // Wait for plannerHub to be available
         if (window.plannerHub) {
             this.initialize();
         } else {
-            // Wait a bit for plannerHub
             const checkInterval = setInterval(() => {
                 if (window.plannerHub) {
                     clearInterval(checkInterval);
                     this.initialize();
                 }
             }, 100);
-            // Timeout after 5 seconds - initialize anyway
             setTimeout(() => {
                 clearInterval(checkInterval);
                 if (!this.initialized) {
@@ -64,14 +66,10 @@ class Plugin extends AppPlugin {
         if (this.initialized) return;
         this.initialized = true;
 
-        // Setup status bar
         this.setupStatusBar();
-
-        // Expose API
         this.exposeAPI();
-
-        // Check for PlannerHub
         this.checkDependencies();
+        this.setupGlobalMouseHandlers();
 
         console.log(`[Flow] Loaded ${VERSION}`);
     }
@@ -85,6 +83,39 @@ class Plugin extends AppPlugin {
         }
     }
 
+    /**
+     * Setup global mouse handlers for drag and resize (once, on document)
+     */
+    setupGlobalMouseHandlers() {
+        document.addEventListener('mousemove', (e) => this.handleGlobalMouseMove(e));
+        document.addEventListener('mouseup', (e) => this.handleGlobalMouseUp(e));
+    }
+
+    handleGlobalMouseMove(e) {
+        if (!this.interaction) return;
+
+        if (this.interaction.type === 'drag') {
+            this.updateDragPreview(e.clientX, e.clientY);
+            this.updateDragGhost(e.clientY);
+        } else if (this.interaction.type === 'resize') {
+            this.updateResizePreview(e.clientY);
+        }
+    }
+
+    handleGlobalMouseUp(e) {
+        if (!this.interaction) return;
+
+        if (this.interaction.type === 'drag') {
+            this.completeDrag(e.clientY);
+        } else if (this.interaction.type === 'resize') {
+            this.completeResize(e.clientY);
+        }
+
+        this.interaction = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }
+
     // =========================================================================
     // API (window.flow)
     // =========================================================================
@@ -92,28 +123,19 @@ class Plugin extends AppPlugin {
     exposeAPI() {
         window.flow = {
             version: VERSION,
-
-            // Session control
             startSession: (taskGuid) => this.startSession(taskGuid),
             pauseSession: () => this.pauseSession(),
             resumeSession: () => this.resumeSession(),
             endSession: () => this.endSession(),
-
-            // State
             getSession: () => this.session ? { ...this.session } : null,
             isActive: () => !!this.session && !this.session.isPaused,
             isPaused: () => !!this.session?.isPaused,
-
-            // Mode
             setMode: (mode) => this.setMode(mode),
             getMode: () => this.mode,
-
-            // UI
             show: () => this.showOverlay(),
             hide: () => this.hideOverlay(),
             toggle: () => this.overlay ? this.hideOverlay() : this.showOverlay(),
         };
-
         console.log('[Flow] API exposed at window.flow');
     }
 
@@ -127,8 +149,6 @@ class Plugin extends AppPlugin {
             tooltip: 'Flow - Click to expand',
             onClick: () => this.handleStatusBarClick()
         });
-
-        // Update every second when active
         setInterval(() => this.updateStatusBar(), 1000);
     }
 
@@ -163,14 +183,11 @@ class Plugin extends AppPlugin {
     updateStatusBar() {
         if (this.statusBarItem) {
             this.statusBarItem.setHtmlLabel(this.buildStatusBarLabel());
-
             const tooltip = this.session
                 ? `${this.session.task?.text || this.session.task?.linkedIssueTitle || 'Working'} - ${this.session.isPaused ? 'Paused' : 'In progress'}`
                 : 'Flow - Click to start a session';
             this.statusBarItem.setTooltip(tooltip);
         }
-
-        // Also update overlay if visible
         if (this.overlay) {
             this.updateOverlayTimer();
         }
@@ -178,7 +195,6 @@ class Plugin extends AppPlugin {
 
     handleStatusBarClick() {
         if (this.overlay) {
-            // Cycle through modes or close
             if (this.mode === 'compact') {
                 this.setMode('full');
             } else {
@@ -198,7 +214,6 @@ class Plugin extends AppPlugin {
         let task = { text: 'Focus session', linkedIssueTitle: null };
         let actualGuid = taskGuid;
 
-        // If no task specified, get the next one from PlannerHub
         if (!taskGuid && window.plannerHub) {
             const tasks = await window.plannerHub.getPlannerHubTasks();
             const nextTask = tasks.find(t => t.status !== 'done');
@@ -207,7 +222,6 @@ class Plugin extends AppPlugin {
                 task = { text: nextTask.text, linkedIssueTitle: nextTask.linkedIssueTitle };
             }
         } else if (taskGuid && window.plannerHub) {
-            // Get task details
             const tasks = await window.plannerHub.getPlannerHubTasks();
             const foundTask = tasks.find(t => t.guid === taskGuid);
             if (foundTask) {
@@ -215,83 +229,66 @@ class Plugin extends AppPlugin {
             }
         }
 
-        // Mark as in progress
         if (actualGuid && window.plannerHub) {
             await window.plannerHub.markInProgress(actualGuid);
         }
 
         this.session = {
             taskGuid: actualGuid,
-            task, // Store full task object for formatTaskTitle
+            task,
             startTime: Date.now(),
             pausedTime: null,
             totalPausedMs: 0,
             isPaused: false
         };
 
-        const taskLabel = task.text || task.linkedIssueTitle || 'Task';
-        console.log(`[Flow] Session started: ${taskLabel}`);
+        console.log(`[Flow] Session started: ${task.text || task.linkedIssueTitle || 'Task'}`);
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
-
         return true;
     }
 
     pauseSession() {
         if (!this.session || this.session.isPaused) return false;
-
         this.session.isPaused = true;
         this.session.pausedTime = Date.now();
-
         console.log('[Flow] Session paused');
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
-
         return true;
     }
 
     resumeSession() {
         if (!this.session || !this.session.isPaused) return false;
-
         const pausedDuration = Date.now() - this.session.pausedTime;
         this.session.totalPausedMs += pausedDuration;
         this.session.isPaused = false;
         this.session.pausedTime = null;
-
         console.log('[Flow] Session resumed');
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
-
         return true;
     }
 
     async endSession() {
         if (!this.session) return false;
-
-        // Mark as done
         if (this.session.taskGuid && window.plannerHub) {
             await window.plannerHub.markDone(this.session.taskGuid);
         }
-
         const elapsed = this.getElapsedTime();
         console.log(`[Flow] Session ended: ${this.formatTime(elapsed)}`);
-
         this.session = null;
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
-
         return true;
     }
 
     getElapsedTime() {
         if (!this.session) return 0;
-
         let elapsed = Date.now() - this.session.startTime - this.session.totalPausedMs;
-
         if (this.session.isPaused) {
             elapsed -= (Date.now() - this.session.pausedTime);
         }
-
         return Math.max(0, elapsed);
     }
 
@@ -308,22 +305,15 @@ class Plugin extends AppPlugin {
 
     showOverlay() {
         if (this.overlay) return;
-
         this.overlay = document.createElement('div');
         this.overlay.id = 'flow-overlay';
         document.body.appendChild(this.overlay);
-
         this.renderOverlay();
         this.startPlanningRefresh();
     }
 
-    /**
-     * Start 5-minute refresh interval for planning view
-     * Updates "now" line position and floating task placement
-     */
     startPlanningRefresh() {
         this.stopPlanningRefresh();
-        // Refresh every 5 minutes (300000ms)
         this.planningRefreshInterval = setInterval(() => {
             if (this.overlay && this.mode === 'full') {
                 console.log('[Flow] Refreshing planning view');
@@ -362,18 +352,13 @@ class Plugin extends AppPlugin {
     async renderCompactOverlay() {
         const elapsed = this.getElapsedTime();
         const timeStr = this.formatTime(elapsed);
-        const progress = Math.min((elapsed / (60 * 60 * 1000)) * 100, 100); // 1hr = 100%
-        const circumference = 126; // 2 * PI * 20
+        const progress = Math.min((elapsed / (60 * 60 * 1000)) * 100, 100);
+        const circumference = 126;
         const offset = circumference - (progress / 100 * circumference);
 
-        const statusClass = this.session
-            ? (this.session.isPaused ? 'paused' : '')
-            : 'idle';
-        const statusText = this.session
-            ? (this.session.isPaused ? 'Paused' : 'Working')
-            : 'Idle';
+        const statusClass = this.session ? (this.session.isPaused ? 'paused' : '') : 'idle';
+        const statusText = this.session ? (this.session.isPaused ? 'Paused' : 'Working') : 'Idle';
 
-        // Get next task
         let nextTask = null;
         if (window.plannerHub && this.session) {
             const tasks = await window.plannerHub.getPlannerHubTasks();
@@ -384,7 +369,6 @@ class Plugin extends AppPlugin {
         }
 
         if (!this.session) {
-            // Idle state - show task picker
             await this.renderIdleCompact();
             return;
         }
@@ -398,7 +382,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="expand" title="Expand">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -408,7 +392,6 @@ class Plugin extends AppPlugin {
                 <div class="flow-compact-body">
                     <div class="flow-compact-task">${this.formatTaskTitle(this.session.task, 30)}</div>
                     <div class="flow-compact-source">Focus session</div>
-
                     <div class="flow-compact-timer">
                         <div class="flow-compact-timer-ring">
                             <svg viewBox="0 0 48 48">
@@ -422,11 +405,9 @@ class Plugin extends AppPlugin {
                             <div class="flow-compact-timer-label">elapsed</div>
                         </div>
                     </div>
-
                     <div class="flow-compact-progress">
                         <div class="flow-compact-progress-bar" style="width: ${progress}%"></div>
                     </div>
-
                     ${nextTask ? `
                         <div class="flow-compact-next">
                             <div class="flow-compact-next-info">
@@ -439,18 +420,15 @@ class Plugin extends AppPlugin {
                 <div class="flow-compact-footer">
                     ${this.session.isPaused ? `
                         <button class="flow-compact-action start" data-action="resume">
-                            <span class="ti ti-player-play"></span>
-                            Resume
+                            <span class="ti ti-player-play"></span> Resume
                         </button>
                     ` : `
                         <button class="flow-compact-action" data-action="pause">
-                            <span class="ti ti-player-pause"></span>
-                            Pause
+                            <span class="ti ti-player-pause"></span> Pause
                         </button>
                     `}
                     <button class="flow-compact-action primary" data-action="complete">
-                        <span class="ti ti-check"></span>
-                        Complete
+                        <span class="ti ti-check"></span> Complete
                     </button>
                 </div>
             </div>
@@ -473,7 +451,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="expand" title="Expand">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -482,9 +460,7 @@ class Plugin extends AppPlugin {
                 </div>
                 <div class="flow-compact-body">
                     ${tasks.length > 0 ? `
-                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-                            Pick a task to start:
-                        </div>
+                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Pick a task to start:</div>
                         <div class="flow-task-picker">
                             ${tasks.map(t => `
                                 <div class="flow-task-picker-item" data-action="start-task" data-guid="${t.guid}">
@@ -503,8 +479,7 @@ class Plugin extends AppPlugin {
                 ${tasks.length > 0 ? `
                     <div class="flow-compact-footer">
                         <button class="flow-compact-action start" data-action="start-next" style="flex: 1; border: none;">
-                            <span class="ti ti-player-play"></span>
-                            Start Next Task
+                            <span class="ti ti-player-play"></span> Start Next Task
                         </button>
                     </div>
                 ` : ''}
@@ -513,20 +488,14 @@ class Plugin extends AppPlugin {
     }
 
     async renderFullOverlay() {
-        // Clean data model:
-        // - pinnedTasks: tasks with explicit scheduled time (Phase 2)
-        // - floatingTasks: tasks without schedule, stack after "now"
-        // - calendarEvents: from calendar, always have fixed times
         let pinnedTasks = [];
         let floatingTasks = [];
         let calendarEvents = [];
 
         if (window.plannerHub) {
-            // Get all incomplete tasks
             const allTasks = await window.plannerHub.getPlannerHubTasks();
             const incompleteTasks = allTasks.filter(t => t.status !== 'done');
 
-            // Split into pinned vs floating based on pinnedSlots map
             for (const task of incompleteTasks) {
                 const pinnedSlot = this.pinnedSlots.get(task.guid);
                 if (pinnedSlot) {
@@ -536,7 +505,6 @@ class Plugin extends AppPlugin {
                 }
             }
 
-            // Get calendar events from timeline (only calendar type)
             if (window.calendarHub) {
                 const timeline = await window.plannerHub.getTimelineView({
                     workdayStart: '07:00',
@@ -547,23 +515,24 @@ class Plugin extends AppPlugin {
             }
         }
 
-        // Auto-select hour range based on current time and calendar events
         this.autoSelectHourRange(pinnedTasks, calendarEvents);
 
-        // Get current time info for "now" line
         const now = new Date();
         const currentHour = now.getHours();
         const currentMinute = now.getMinutes();
 
-        // Session info
         const elapsed = this.getElapsedTime();
         const timeStr = this.formatTime(elapsed);
         const isIdle = !this.session;
         const isPaused = this.session?.isPaused;
 
+        // Build backlog list based on hidePlanned toggle
+        const backlogTasks = this.hidePlanned
+            ? floatingTasks
+            : [...floatingTasks, ...pinnedTasks];
+
         this.overlay.innerHTML = `
             <div class="flow-planner">
-                <!-- Header -->
                 <div class="flow-planner-header">
                     <div class="flow-planner-title">
                         <span class="ti ti-flame flow-planner-title-icon"></span>
@@ -571,7 +540,7 @@ class Plugin extends AppPlugin {
                     </div>
                     <div class="flow-compact-controls">
                         <button class="flow-compact-btn" data-action="compact" title="Compact view">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -579,42 +548,34 @@ class Plugin extends AppPlugin {
                     </div>
                 </div>
 
-                <!-- Main Content -->
                 <div class="flow-planner-main">
-                    <!-- Backlog Panel -->
                     <div class="flow-backlog">
                         <div class="flow-section-header">
                             <span class="flow-section-title">
                                 <span class="ti ti-stack-2"></span>
                                 Now
                             </span>
-                            <span class="flow-section-count">${floatingTasks.length}</span>
-                            ${floatingTasks.length > 0 ? `
-                                <div class="flow-section-actions">
-                                    <button class="flow-add-all-btn" data-action="add-all" title="Float all tasks into calendar">
-                                        <span class="ti ti-playlist-add"></span>
-                                        Add all
-                                    </button>
-                                </div>
-                            ` : ''}
+                            <span class="flow-section-count">${floatingTasks.length + pinnedTasks.length}</span>
+                            <div class="flow-section-actions">
+                                <button class="flow-hide-planned-btn ${this.hidePlanned ? 'active' : ''}" data-action="toggle-hide-planned" title="${this.hidePlanned ? 'Show planned' : 'Hide planned'}">
+                                    <span class="ti ti-${this.hidePlanned ? 'eye' : 'eye-off'}"></span>
+                                    ${this.hidePlanned ? 'Show' : 'Hide'} planned
+                                </button>
+                            </div>
                         </div>
                         <div class="flow-backlog-list">
-                            ${floatingTasks.length > 0 ? floatingTasks.map(t => this.renderBacklogTask(t)).join('') : `
+                            ${backlogTasks.length > 0 ? backlogTasks.map(t => this.renderBacklogTask(t)).join('') : `
                                 <div class="flow-backlog-empty">
                                     <div class="flow-backlog-empty-icon"><span class="ti ti-checkbox"></span></div>
-                                    <div class="flow-backlog-empty-text">All tasks scheduled!</div>
+                                    <div class="flow-backlog-empty-text">${this.hidePlanned ? 'All remaining tasks planned!' : 'All tasks scheduled!'}</div>
                                 </div>
                             `}
                         </div>
                     </div>
 
-                    <!-- Calendar Panel -->
                     <div class="flow-calendar">
                         <div class="flow-calendar-header">
-                            <span class="flow-calendar-date">
-                                <span class="ti ti-calendar"></span>
-                                Today
-                            </span>
+                            <span class="flow-calendar-date"><span class="ti ti-calendar"></span> Today</span>
                         </div>
                         <div class="flow-calendar-pill">
                             <button class="flow-calendar-pill-btn ${this.hourRangeMode === 'normal' ? 'active' : ''}" data-action="hour-range" data-mode="normal">9-17</button>
@@ -627,40 +588,23 @@ class Plugin extends AppPlugin {
                     </div>
                 </div>
 
-                <!-- Active Session Bar -->
                 <div class="flow-active-bar ${isIdle ? 'idle' : ''}">
                     <div class="flow-active-indicator"></div>
                     <div class="flow-active-info">
                         <div class="flow-active-label">${isIdle ? 'Ready to start' : (isPaused ? 'Paused' : 'Working on')}</div>
-                        <div class="flow-active-task">
-                            ${isIdle ? 'Pick a task from the backlog' : this.formatTaskTitle(this.session.task)}
-                        </div>
+                        <div class="flow-active-task">${isIdle ? 'Pick a task from the backlog' : this.formatTaskTitle(this.session.task)}</div>
                     </div>
                     <div class="flow-active-timer">${isIdle ? '--:--' : timeStr}</div>
                     <div class="flow-active-controls">
                         ${isIdle ? `
-                            ${floatingTasks.length > 0 ? `
-                                <button class="flow-active-btn start" data-action="start-next">
-                                    <span class="ti ti-player-play"></span>
-                                    Start
-                                </button>
-                            ` : ''}
+                            ${floatingTasks.length > 0 ? `<button class="flow-active-btn start" data-action="start-next"><span class="ti ti-player-play"></span> Start</button>` : ''}
                         ` : `
                             ${isPaused ? `
-                                <button class="flow-active-btn" data-action="resume">
-                                    <span class="ti ti-player-play"></span>
-                                    Resume
-                                </button>
+                                <button class="flow-active-btn" data-action="resume"><span class="ti ti-player-play"></span> Resume</button>
                             ` : `
-                                <button class="flow-active-btn" data-action="pause">
-                                    <span class="ti ti-player-pause"></span>
-                                    Pause
-                                </button>
+                                <button class="flow-active-btn" data-action="pause"><span class="ti ti-player-pause"></span> Pause</button>
                             `}
-                            <button class="flow-active-btn complete" data-action="complete">
-                                <span class="ti ti-check"></span>
-                                Done
-                            </button>
+                            <button class="flow-active-btn complete" data-action="complete"><span class="ti ti-check"></span> Done</button>
                         `}
                     </div>
                 </div>
@@ -668,13 +612,8 @@ class Plugin extends AppPlugin {
         `;
     }
 
-    /**
-     * Auto-select hour range mode based on current time AND scheduled tasks
-     */
     autoSelectHourRange(scheduledItems = [], calendarEvents = []) {
         const currentHour = new Date().getHours();
-
-        // Find earliest and latest hours from all items
         let minHour = currentHour;
         let maxHour = currentHour;
 
@@ -687,25 +626,27 @@ class Plugin extends AppPlugin {
             }
         }
 
-        // Select mode based on the range needed
         if (minHour < 7 || maxHour > 21) {
             this.hourRangeMode = 'full';
         } else if (minHour < 9 || maxHour > 17) {
             this.hourRangeMode = 'extended';
         }
-        // Otherwise keep current mode (default is 'normal')
     }
 
-    /**
-     * Render a backlog task card
-     */
     renderBacklogTask(task) {
-        const estimate = task.estimate || '30m'; // Default estimate
-        const isFloating = !task.scheduledStart; // No explicit schedule = floating
+        const estimate = this.getTaskEstimateStr(task.guid) || task.estimate || '30m';
+        const isPinned = this.pinnedSlots.has(task.guid);
+        const isFloating = !isPinned;
         const statusClass = task.status === 'in-progress' ? 'in-progress' : (task.status === 'next' ? 'next' : 'todo');
 
+        let pinnedTimeStr = '';
+        if (isPinned) {
+            const slot = this.pinnedSlots.get(task.guid);
+            pinnedTimeStr = this.formatHourMin(slot);
+        }
+
         return `
-            <div class="flow-task-card ${isFloating ? 'floating' : ''}" draggable="true" data-guid="${task.guid}">
+            <div class="flow-task-card ${isFloating ? 'floating' : ''}" data-guid="${task.guid}" data-draggable="true">
                 <button class="flow-task-estimate" data-action="estimate" data-guid="${task.guid}" title="Click to change estimate">${estimate}</button>
                 <div class="flow-task-content">
                     <div class="flow-task-title">${this.formatTaskTitle(task)}</div>
@@ -714,40 +655,26 @@ class Plugin extends AppPlugin {
                             <span class="flow-task-status-dot ${statusClass}"></span>
                             ${task.status || 'todo'}
                         </span>
+                        ${isPinned ? `<span class="flow-task-planned-badge"><span class="ti ti-clock"></span> ${pinnedTimeStr}</span>` : ''}
                     </div>
                 </div>
             </div>
         `;
     }
 
-    /**
-     * Render calendar with layered architecture:
-     * 1. Grid layer - static hour slots (background)
-     * 2. Tasks layer - absolutely positioned tasks (overlay)
-     * 3. Now line - positioned at current time
-     *
-     * Data model:
-     * - pinnedTasks: have explicit pinnedSlot (Phase 2)
-     * - calendarEvents: from calendar, have start/end
-     * - floatingTasks: no schedule, stack after "now"
-     */
     renderCalendarSlots(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
         const range = this.hourRanges[this.hourRangeMode];
         const totalHours = range.end - range.start + 1;
         const totalMinutes = totalHours * 60;
 
-        // 1. Render static hour grid (background)
+        // Grid
         let gridHtml = '';
         for (let h = range.start; h <= range.end; h++) {
             const hourStr = h.toString().padStart(2, '0') + ':00';
-            gridHtml += `
-                <div class="flow-calendar-slot">
-                    <div class="flow-slot-hour">${hourStr}</div>
-                </div>
-            `;
+            gridHtml += `<div class="flow-calendar-slot"><div class="flow-slot-hour">${hourStr}</div></div>`;
         }
 
-        // 2. Calculate "now" position in minutes from range start
+        // Now line
         const nowMinutes = (currentHour - range.start) * 60 + currentMinute;
         const nowPercent = Math.max(0, Math.min(100, (nowMinutes / totalMinutes) * 100));
         const showNowLine = currentHour >= range.start && currentHour <= range.end;
@@ -759,68 +686,50 @@ class Plugin extends AppPlugin {
             </div>
         ` : '';
 
-        // 3. Build render list
+        // Tasks
         let tasksHtml = '';
 
-        // Pinned tasks - rendered at their explicit slot time (Phase 2)
+        // Pinned tasks
         for (const task of pinnedTasks) {
-            const slot = task.pinnedSlot; // Date object
+            const slot = task.pinnedSlot;
             if (!slot) continue;
-
             const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
             const topPct = (startMin / totalMinutes) * 100;
-            const durationMin = this.getTaskEstimate(task);
+            const durationMin = this.getTaskEstimate(task.guid);
             const heightPct = (durationMin / totalMinutes) * 100;
-
             tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
         }
 
-        // Calendar events - rendered at their fixed times
+        // Calendar events
         for (const event of calendarEvents) {
             if (!event.start) continue;
-
             const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
             const topPct = (startMin / totalMinutes) * 100;
-            let durationMin = 60; // default 1hr
-            if (event.end) {
-                durationMin = (event.end - event.start) / 60000;
-            }
+            let durationMin = 60;
+            if (event.end) durationMin = (event.end - event.start) / 60000;
             const heightPct = (durationMin / totalMinutes) * 100;
-
             tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
         }
 
-        // Floating tasks - stack sequentially starting at "now"
-        // Minimum spacing to prevent visual overlap (CSS min-height issue)
+        // Floating tasks
         const minSlotMinutes = 45;
-        let floatStartMin = Math.max(0, nowMinutes); // Start at now (or 0 if now is before range)
+        let floatStartMin = Math.max(0, nowMinutes);
         for (const task of floatingTasks) {
-            if (floatStartMin >= totalMinutes) break; // Past end of visible range
-
+            if (floatStartMin >= totalMinutes) break;
             const topPct = (floatStartMin / totalMinutes) * 100;
-            const durationMin = this.getTaskEstimate(task);
+            const durationMin = this.getTaskEstimate(task.guid);
             const heightPct = (durationMin / totalMinutes) * 100;
-
             tasksHtml += this.renderCalendarTask(task, topPct, heightPct, true, false);
-
-            // Advance position by at least minSlotMinutes to prevent overlap
             floatStartMin += Math.max(durationMin, minSlotMinutes);
         }
 
         return `
-            <div class="flow-calendar-grid">
-                ${gridHtml}
-            </div>
+            <div class="flow-calendar-grid">${gridHtml}</div>
             ${nowLineHtml}
-            <div class="flow-calendar-tasks">
-                ${tasksHtml}
-            </div>
+            <div class="flow-calendar-tasks">${tasksHtml}</div>
         `;
     }
 
-    /**
-     * Render a single task positioned absolutely on the calendar
-     */
     renderCalendarTask(item, topPct, heightPct, isFloating, isCalendar) {
         const isActive = this.session?.taskGuid === item.guid;
         const title = this.formatTaskTitle(item);
@@ -828,9 +737,7 @@ class Plugin extends AppPlugin {
             ? this.formatHourMin(item.pinnedSlot)
             : (item.estimate ? `~${item.estimate}` : '');
 
-        // Tasks are draggable and resizable, calendar events are not
-        const draggable = !isCalendar ? 'draggable="true"' : '';
-        const resizeHandle = !isCalendar ? '<div class="flow-resize-handle" data-resize="true"></div>' : '';
+        const draggable = !isCalendar ? 'data-draggable="true"' : '';
 
         return `
             <div class="flow-calendar-task ${isFloating ? 'floating' : ''} ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
@@ -838,14 +745,356 @@ class Plugin extends AppPlugin {
                  data-guid="${item.guid}" data-action="start-task" ${draggable}>
                 <div class="flow-calendar-task-title">${title}</div>
                 ${timeLabel ? `<div class="flow-calendar-task-time">${timeLabel}</div>` : ''}
-                ${resizeHandle}
+                ${!isCalendar ? '<div class="flow-resize-handle" data-resize="true"></div>' : ''}
             </div>
         `;
     }
 
-    /**
-     * Convert estimate string to minutes
-     */
+    // =========================================================================
+    // Event Wiring
+    // =========================================================================
+
+    wireOverlayEvents() {
+        if (!this.overlay) return;
+
+        // Click handlers
+        this.overlay.addEventListener('click', async (e) => {
+            const actionEl = e.target.closest('[data-action]');
+            if (!actionEl) return;
+
+            // Don't handle click if we just finished a drag/resize
+            if (e.target.closest('[data-draggable]') && this.justFinishedInteraction) {
+                return;
+            }
+
+            const action = actionEl.dataset.action;
+
+            switch (action) {
+                case 'close': this.hideOverlay(); break;
+                case 'expand': this.setMode('full'); break;
+                case 'compact': this.setMode('compact'); break;
+                case 'pause': this.pauseSession(); break;
+                case 'resume': this.resumeSession(); break;
+                case 'complete': await this.endSession(); break;
+                case 'start-next': await this.startSession(); break;
+                case 'start-task':
+                    const guid = actionEl.dataset.guid;
+                    await this.startSession(guid);
+                    break;
+                case 'hour-range':
+                    this.hourRangeMode = actionEl.dataset.mode;
+                    this.renderOverlay();
+                    break;
+                case 'toggle-hide-planned':
+                    this.hidePlanned = !this.hidePlanned;
+                    this.renderOverlay();
+                    break;
+                case 'estimate':
+                    this.showEstimateDropdown(actionEl, actionEl.dataset.guid);
+                    break;
+            }
+        });
+
+        // Mousedown for drag/resize
+        this.overlay.addEventListener('mousedown', (e) => {
+            // Check for resize handle first
+            const resizeHandle = e.target.closest('[data-resize]');
+            if (resizeHandle) {
+                this.startResize(e, resizeHandle);
+                return;
+            }
+
+            // Check for draggable task (but not on buttons)
+            if (e.target.closest('button')) return;
+
+            const draggable = e.target.closest('[data-draggable]');
+            if (draggable) {
+                this.startDrag(e, draggable);
+            }
+        });
+    }
+
+    // =========================================================================
+    // Drag Implementation (mouse-based)
+    // =========================================================================
+
+    startDrag(e, element) {
+        e.preventDefault();
+
+        const guid = element.dataset.guid;
+        const isFromBacklog = element.classList.contains('flow-task-card');
+        const title = element.querySelector('.flow-task-title, .flow-calendar-task-title')?.textContent || 'Task';
+        const rect = element.getBoundingClientRect();
+
+        this.interaction = {
+            type: 'drag',
+            taskGuid: guid,
+            element,
+            isFromBacklog,
+            title,
+            startX: e.clientX,
+            startY: e.clientY,
+            offsetX: e.clientX - rect.left,
+            offsetY: e.clientY - rect.top,
+            hasMoved: false
+        };
+
+        element.classList.add('dragging');
+        document.body.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+
+        console.log(`[Flow] Drag start: ${guid}`);
+    }
+
+    updateDragPreview(clientX, clientY) {
+        if (!this.interaction || this.interaction.type !== 'drag') return;
+
+        // Check if we've moved enough to consider it a drag
+        const dx = clientX - this.interaction.startX;
+        const dy = clientY - this.interaction.startY;
+        if (!this.interaction.hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+
+        this.interaction.hasMoved = true;
+
+        // Create/update floating preview for backlog drags
+        if (this.interaction.isFromBacklog) {
+            if (!this.dragPreview) {
+                this.dragPreview = document.createElement('div');
+                this.dragPreview.className = 'flow-drag-preview';
+                this.dragPreview.innerHTML = this.interaction.element.innerHTML;
+                document.body.appendChild(this.dragPreview);
+            }
+            this.dragPreview.style.left = `${clientX - this.interaction.offsetX}px`;
+            this.dragPreview.style.top = `${clientY - this.interaction.offsetY}px`;
+        }
+    }
+
+    updateDragGhost(clientY) {
+        if (!this.interaction || this.interaction.type !== 'drag') return;
+        if (!this.interaction.hasMoved) return;
+
+        const calendarSlots = this.overlay?.querySelector('.flow-calendar-slots');
+        if (!calendarSlots) return;
+
+        const rect = calendarSlots.getBoundingClientRect();
+
+        // Only show ghost if mouse is over calendar
+        if (clientY < rect.top || clientY > rect.bottom) {
+            this.removeDragGhost();
+            return;
+        }
+
+        calendarSlots.classList.add('drag-over');
+
+        // Create ghost if needed
+        if (!this.dragGhost) {
+            this.dragGhost = document.createElement('div');
+            this.dragGhost.className = 'drop-ghost';
+            calendarSlots.querySelector('.flow-calendar-tasks')?.appendChild(this.dragGhost);
+        }
+
+        // Calculate position
+        const time = this.calculateDropTime(calendarSlots, clientY);
+        if (!time) return;
+
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const startMin = (time.getHours() - range.start) * 60 + time.getMinutes();
+        const topPct = (startMin / totalMinutes) * 100;
+        const durationMin = this.getTaskEstimate(this.interaction.taskGuid);
+        const heightPct = (durationMin / totalMinutes) * 100;
+
+        // Time range
+        const endTime = new Date(time.getTime() + durationMin * 60000);
+        const startStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+        const endStr = `${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
+
+        this.dragGhost.style.top = `${topPct}%`;
+        this.dragGhost.style.height = `${heightPct}%`;
+
+        if (this.interaction.isFromBacklog) {
+            this.dragGhost.innerHTML = `<div class="drop-ghost-time">${startStr} → ${endStr}</div>`;
+            this.dragGhost.classList.add('slot-only');
+        } else {
+            this.dragGhost.innerHTML = `
+                <div class="drop-ghost-title">${this.interaction.title}</div>
+                <div class="drop-ghost-time">${startStr} → ${endStr}</div>
+            `;
+            this.dragGhost.classList.remove('slot-only');
+        }
+    }
+
+    removeDragGhost() {
+        if (this.dragGhost) {
+            this.dragGhost.remove();
+            this.dragGhost = null;
+        }
+        this.overlay?.querySelector('.flow-calendar-slots')?.classList.remove('drag-over');
+    }
+
+    completeDrag(clientY) {
+        if (!this.interaction || this.interaction.type !== 'drag') return;
+
+        // Clean up preview
+        if (this.dragPreview) {
+            this.dragPreview.remove();
+            this.dragPreview = null;
+        }
+
+        this.interaction.element.classList.remove('dragging');
+
+        // Only pin if we actually moved
+        if (this.interaction.hasMoved) {
+            const calendarSlots = this.overlay?.querySelector('.flow-calendar-slots');
+            if (calendarSlots) {
+                const rect = calendarSlots.getBoundingClientRect();
+                if (clientY >= rect.top && clientY <= rect.bottom) {
+                    const time = this.calculateDropTime(calendarSlots, clientY);
+                    if (time) {
+                        this.pinTaskToSlot(this.interaction.taskGuid, time);
+                    }
+                }
+            }
+            this.justFinishedInteraction = true;
+            setTimeout(() => { this.justFinishedInteraction = false; }, 100);
+        }
+
+        this.removeDragGhost();
+    }
+
+    // =========================================================================
+    // Resize Implementation
+    // =========================================================================
+
+    startResize(e, handle) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const taskEl = handle.closest('.flow-calendar-task');
+        if (!taskEl) return;
+
+        const guid = taskEl.dataset.guid;
+        const rect = taskEl.getBoundingClientRect();
+        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
+
+        this.interaction = {
+            type: 'resize',
+            taskGuid: guid,
+            element: taskEl,
+            startY: e.clientY,
+            startHeight: rect.height,
+            startEstimate: this.getTaskEstimate(guid),
+            containerRect: calendarSlots.getBoundingClientRect(),
+            containerHeight: calendarSlots.scrollHeight
+        };
+
+        taskEl.classList.add('resizing');
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+
+        console.log(`[Flow] Resize start: ${guid}, estimate: ${this.interaction.startEstimate}m`);
+    }
+
+    updateResizePreview(clientY) {
+        if (!this.interaction || this.interaction.type !== 'resize') return;
+
+        const { element, startY, startHeight, startEstimate, containerHeight } = this.interaction;
+        const deltaY = clientY - startY;
+
+        // Calculate new height
+        const newHeight = Math.max(28, startHeight + deltaY);
+        element.style.height = `${newHeight}px`;
+
+        // Calculate new estimate
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const minutesPerPixel = totalMinutes / containerHeight;
+        const newMinutes = Math.round((newHeight * minutesPerPixel) / 15) * 15;
+        const clampedMinutes = Math.max(15, Math.min(480, newMinutes));
+
+        // Show duration label
+        let label = element.querySelector('.flow-resize-label');
+        if (!label) {
+            label = document.createElement('div');
+            label.className = 'flow-resize-label';
+            element.appendChild(label);
+        }
+        label.textContent = clampedMinutes >= 60
+            ? `${Math.floor(clampedMinutes / 60)}h${clampedMinutes % 60 > 0 ? clampedMinutes % 60 + 'm' : ''}`
+            : `${clampedMinutes}m`;
+
+        this.interaction.newEstimate = clampedMinutes;
+    }
+
+    completeResize(clientY) {
+        if (!this.interaction || this.interaction.type !== 'resize') return;
+
+        const { taskGuid, element, newEstimate } = this.interaction;
+
+        // Remove label
+        element.querySelector('.flow-resize-label')?.remove();
+        element.classList.remove('resizing');
+
+        // Save estimate if changed
+        if (newEstimate && newEstimate !== this.interaction.startEstimate) {
+            this.taskEstimates.set(taskGuid, newEstimate);
+            console.log(`[Flow] Resize complete: ${taskGuid}, ${this.interaction.startEstimate}m → ${newEstimate}m`);
+        }
+
+        // Re-render to fix height
+        this.renderOverlay();
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    calculateDropTime(container, clientY) {
+        const rect = container.getBoundingClientRect();
+        const scrollTop = container.scrollTop;
+        const relativeY = clientY - rect.top + scrollTop;
+        const containerHeight = container.scrollHeight;
+
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const minutesFromStart = (relativeY / containerHeight) * totalMinutes;
+        const snappedMinutes = Math.round(minutesFromStart / 15) * 15;
+        const hours = range.start + Math.floor(snappedMinutes / 60);
+        const minutes = snappedMinutes % 60;
+
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+    }
+
+    pinTaskToSlot(taskGuid, time) {
+        console.log(`[Flow] Pinning task ${taskGuid} to ${time.toLocaleTimeString()}`);
+        this.pinnedSlots.set(taskGuid, time);
+        this.renderOverlay();
+    }
+
+    unpinTask(taskGuid) {
+        console.log(`[Flow] Unpinning task ${taskGuid}`);
+        this.pinnedSlots.delete(taskGuid);
+        this.renderOverlay();
+    }
+
+    getTaskEstimate(guid) {
+        if (this.taskEstimates.has(guid)) {
+            return this.taskEstimates.get(guid);
+        }
+        return 30; // default
+    }
+
+    getTaskEstimateStr(guid) {
+        const min = this.getTaskEstimate(guid);
+        if (min >= 60) {
+            const h = Math.floor(min / 60);
+            const m = min % 60;
+            return m > 0 ? `${h}h${m}m` : `${h}h`;
+        }
+        return `${min}m`;
+    }
+
     estimateToMinutes(estimate) {
         if (!estimate) return 30;
         const match = estimate.match(/(\d+)([hm])/);
@@ -854,9 +1103,6 @@ class Plugin extends AppPlugin {
         return match[2] === 'h' ? num * 60 : num;
     }
 
-    /**
-     * Format Date to HH:MM
-     */
     formatHourMin(date) {
         if (!date) return '';
         const h = date.getHours().toString().padStart(2, '0');
@@ -871,7 +1117,6 @@ class Plugin extends AppPlugin {
         const timeStr = this.formatTime(elapsed);
         const progress = Math.min((elapsed / (60 * 60 * 1000)) * 100, 100);
 
-        // Update compact timer
         const elapsedEl = this.overlay.querySelector('.flow-compact-timer-elapsed');
         if (elapsedEl) elapsedEl.textContent = timeStr;
 
@@ -888,539 +1133,19 @@ class Plugin extends AppPlugin {
             ringProgress.style.strokeDashoffset = offset;
         }
 
-        // Update planning view active bar timer
         const activeTimer = this.overlay.querySelector('.flow-active-timer');
         if (activeTimer) activeTimer.textContent = timeStr;
     }
 
-    wireOverlayEvents() {
-        if (!this.overlay) return;
-
-        // Click handlers
-        this.overlay.addEventListener('click', async (e) => {
-            const actionEl = e.target.closest('[data-action]');
-            if (!actionEl) return;
-
-            const action = actionEl.dataset.action;
-
-            switch (action) {
-                case 'close':
-                    this.hideOverlay();
-                    break;
-                case 'expand':
-                    this.setMode('full');
-                    break;
-                case 'compact':
-                    this.setMode('compact');
-                    break;
-                case 'pause':
-                    this.pauseSession();
-                    break;
-                case 'resume':
-                    this.resumeSession();
-                    break;
-                case 'complete':
-                    await this.endSession();
-                    break;
-                case 'start-next':
-                    await this.startSession();
-                    break;
-                case 'start-task':
-                    const guid = actionEl.dataset.guid;
-                    await this.startSession(guid);
-                    break;
-                case 'hour-range':
-                    this.hourRangeMode = actionEl.dataset.mode;
-                    this.renderOverlay();
-                    break;
-                case 'add-all':
-                    await this.addAllToCalendar();
-                    break;
-                case 'estimate':
-                    this.showEstimateDropdown(actionEl, actionEl.dataset.guid);
-                    break;
-            }
-        });
-
-        // Drag-drop handlers for task scheduling
-        this.wireDragDropEvents();
-
-        // Resize handlers for adjusting task duration
-        this.wireResizeEvents();
-    }
-
-    /**
-     * Wire up drag-drop events for scheduling tasks
-     */
-    wireDragDropEvents() {
-        if (!this.overlay) return;
-
-        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
-        if (!calendarSlots) return;
-
-        // Drag start on task cards
-        this.overlay.addEventListener('dragstart', (e) => {
-            const taskCard = e.target.closest('.flow-task-card, .flow-calendar-task');
-            if (!taskCard) return;
-
-            const guid = taskCard.dataset.guid;
-            const title = taskCard.querySelector('.flow-task-title, .flow-calendar-task-title')?.textContent || 'Task';
-            const estimate = taskCard.querySelector('.flow-task-estimate')?.textContent || '30m';
-
-            this.draggedTask = { guid, title, estimate, element: taskCard };
-            taskCard.classList.add('dragging');
-
-            // Set drag data
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', guid);
-
-            // Use a minimal drag image
-            const dragImage = document.createElement('div');
-            dragImage.style.cssText = 'position: absolute; top: -1000px;';
-            document.body.appendChild(dragImage);
-            e.dataTransfer.setDragImage(dragImage, 0, 0);
-            setTimeout(() => dragImage.remove(), 0);
-
-            console.log(`[Flow] Drag start: ${guid}`);
-        });
-
-        // Drag end
-        this.overlay.addEventListener('dragend', (e) => {
-            const taskCard = e.target.closest('.flow-task-card, .flow-calendar-task');
-            if (taskCard) {
-                taskCard.classList.remove('dragging');
-            }
-            this.draggedTask = null;
-
-            // Remove ghost preview
-            this.removeDropGhost(calendarSlots);
-            calendarSlots.classList.remove('drag-over');
-        });
-
-        // Drag over calendar - allow drop and show ghost preview
-        calendarSlots.addEventListener('dragover', (e) => {
-            if (!this.draggedTask) return;
-
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            calendarSlots.classList.add('drag-over');
-
-            // Update ghost preview position
-            this.updateDropGhost(calendarSlots, e.clientY);
-        });
-
-        // Drag leave
-        calendarSlots.addEventListener('dragleave', (e) => {
-            // Only remove if leaving the container entirely
-            if (!calendarSlots.contains(e.relatedTarget)) {
-                calendarSlots.classList.remove('drag-over');
-                this.removeDropGhost(calendarSlots);
-            }
-        });
-
-        // Drop - pin task to time slot
-        calendarSlots.addEventListener('drop', (e) => {
-            e.preventDefault();
-            if (!this.draggedTask) return;
-
-            const time = this.calculateDropTime(calendarSlots, e.clientY);
-            if (time) {
-                this.pinTaskToSlot(this.draggedTask.guid, time);
-            }
-
-            calendarSlots.classList.remove('drag-over');
-            this.removeDropGhost(calendarSlots);
-        });
-    }
-
-    /**
-     * Show/update ghost preview of task at drop position
-     */
-    updateDropGhost(container, clientY) {
-        if (!this.draggedTask) return;
-
-        let ghost = container.querySelector('.drop-ghost');
-        if (!ghost) {
-            ghost = document.createElement('div');
-            ghost.className = 'drop-ghost';
-            container.querySelector('.flow-calendar-tasks')?.appendChild(ghost);
-        }
-
-        // Calculate position (snapped to 15-min grid)
-        const startTime = this.calculateDropTime(container, clientY);
-        if (!startTime) return;
-
-        const range = this.hourRanges[this.hourRangeMode];
-        const totalMinutes = (range.end - range.start + 1) * 60;
-        const startMin = (startTime.getHours() - range.start) * 60 + startTime.getMinutes();
-        const topPct = (startMin / totalMinutes) * 100;
-        const durationMin = this.getTaskEstimate(this.draggedTask.guid);
-        const heightPct = (durationMin / totalMinutes) * 100;
-
-        // Calculate end time
-        const endTime = new Date(startTime.getTime() + durationMin * 60000);
-
-        // Format time range: "13:15 → 14:45"
-        const startStr = `${startTime.getHours().toString().padStart(2, '0')}:${startTime.getMinutes().toString().padStart(2, '0')}`;
-        const endStr = `${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
-        const timeRange = `${startStr} → ${endStr}`;
-
-        ghost.style.top = `${topPct}%`;
-        ghost.style.height = `${heightPct}%`;
-        ghost.innerHTML = `
-            <div class="drop-ghost-time">${timeRange}</div>
-        `;
-    }
-
-    /**
-     * Remove ghost preview
-     */
-    removeDropGhost(container) {
-        container.querySelectorAll('.drop-ghost').forEach(el => el.remove());
-    }
-
-    /**
-     * Wire up resize events for adjusting task duration
-     */
-    wireResizeEvents() {
-        if (!this.overlay) return;
-
-        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
-        if (!calendarSlots) return;
-
-        // Mouse down on resize handle
-        calendarSlots.addEventListener('mousedown', (e) => {
-            const handle = e.target.closest('.flow-resize-handle');
-            if (!handle) return;
-
-            e.preventDefault();
-            e.stopPropagation();
-
-            const taskEl = handle.closest('.flow-calendar-task');
-            if (!taskEl) return;
-
-            const guid = taskEl.dataset.guid;
-            const rect = taskEl.getBoundingClientRect();
-            const currentEstimate = this.getTaskEstimate(guid);
-
-            this.resizingTask = {
-                guid,
-                element: taskEl,
-                startY: e.clientY,
-                startHeight: rect.height,
-                startEstimate: currentEstimate,
-                containerRect: calendarSlots.getBoundingClientRect(),
-                containerHeight: calendarSlots.scrollHeight
-            };
-
-            taskEl.classList.add('resizing');
-            document.body.style.cursor = 'ns-resize';
-            document.body.style.userSelect = 'none';
-
-            console.log(`[Flow] Resize start: ${guid}, estimate: ${currentEstimate}m`);
-        });
-
-        // Mouse move - update resize preview
-        document.addEventListener('mousemove', (e) => {
-            if (!this.resizingTask) return;
-
-            const deltaY = e.clientY - this.resizingTask.startY;
-            this.updateResizePreview(deltaY);
-        });
-
-        // Mouse up - complete resize
-        document.addEventListener('mouseup', (e) => {
-            if (!this.resizingTask) return;
-
-            const deltaY = e.clientY - this.resizingTask.startY;
-            this.completeResize(deltaY);
-
-            this.resizingTask.element.classList.remove('resizing');
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-            this.resizingTask = null;
-        });
-    }
-
-    /**
-     * Get task estimate in minutes (from local overrides, task data, or default)
-     */
-    getTaskEstimate(guidOrTask) {
-        const guid = typeof guidOrTask === 'string' ? guidOrTask : guidOrTask?.guid;
-
-        // Check local overrides first
-        if (guid && this.taskEstimates.has(guid)) {
-            return this.taskEstimates.get(guid);
-        }
-
-        // Try to get from task object
-        if (typeof guidOrTask === 'object' && guidOrTask?.estimate) {
-            return this.estimateToMinutes(guidOrTask.estimate);
-        }
-
-        // Default estimate
-        return 30;
-    }
-
-    /**
-     * Update resize preview (visual feedback)
-     */
-    updateResizePreview(deltaY) {
-        if (!this.resizingTask) return;
-
-        const { element, startEstimate, containerHeight } = this.resizingTask;
-        const range = this.hourRanges[this.hourRangeMode];
-        const totalMinutes = (range.end - range.start + 1) * 60;
-
-        // Convert deltaY to minutes
-        const deltaMinutes = (deltaY / containerHeight) * totalMinutes;
-
-        // Calculate new estimate (snap to 15-min)
-        const newEstimate = Math.max(15, Math.round((startEstimate + deltaMinutes) / 15) * 15);
-        const newHeightPct = (newEstimate / totalMinutes) * 100;
-
-        // Update element height
-        element.style.height = `${newHeightPct}%`;
-
-        // Format duration label
-        const hours = Math.floor(newEstimate / 60);
-        const mins = newEstimate % 60;
-        const label = hours > 0 ? `${hours}h${mins > 0 ? mins + 'm' : ''}` : `${mins}m`;
-
-        // Show floating duration label above resize handle
-        let resizeLabel = element.querySelector('.flow-resize-label');
-        if (!resizeLabel) {
-            resizeLabel = document.createElement('div');
-            resizeLabel.className = 'flow-resize-label';
-            element.appendChild(resizeLabel);
-        }
-        resizeLabel.textContent = label;
-    }
-
-    /**
-     * Complete resize and save new estimate
-     */
-    completeResize(deltaY) {
-        if (!this.resizingTask) return;
-
-        const { guid, startEstimate, containerHeight } = this.resizingTask;
-        const range = this.hourRanges[this.hourRangeMode];
-        const totalMinutes = (range.end - range.start + 1) * 60;
-
-        // Convert deltaY to minutes
-        const deltaMinutes = (deltaY / containerHeight) * totalMinutes;
-
-        // Calculate new estimate (snap to 15-min, minimum 15m)
-        const newEstimate = Math.max(15, Math.round((startEstimate + deltaMinutes) / 15) * 15);
-
-        console.log(`[Flow] Resize complete: ${guid}, ${startEstimate}m → ${newEstimate}m`);
-
-        // Save new estimate
-        this.taskEstimates.set(guid, newEstimate);
-
-        // Refresh to update floating task positions
-        this.refreshTaskViews();
-    }
-
-    /**
-     * Calculate the time from drop position
-     */
-    calculateDropTime(container, clientY) {
-        const rect = container.getBoundingClientRect();
-        const scrollTop = container.scrollTop;
-        const relativeY = clientY - rect.top + scrollTop;
-        const containerHeight = container.scrollHeight;
-
-        const range = this.hourRanges[this.hourRangeMode];
-        const totalMinutes = (range.end - range.start + 1) * 60;
-
-        // Calculate minutes from start of range
-        const minutesFromStart = (relativeY / containerHeight) * totalMinutes;
-
-        // Snap to 15-minute intervals
-        const snappedMinutes = Math.round(minutesFromStart / 15) * 15;
-
-        // Convert to time
-        const hours = range.start + Math.floor(snappedMinutes / 60);
-        const minutes = snappedMinutes % 60;
-
-        // Create Date for today with this time
-        const now = new Date();
-        const dropTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
-
-        return dropTime;
-    }
-
-    /**
-     * Pin a task to a specific time slot
-     */
-    pinTaskToSlot(taskGuid, time) {
-        console.log(`[Flow] Pinning task ${taskGuid} to ${time.toLocaleTimeString()}`);
-
-        this.pinnedSlots.set(taskGuid, time);
-
-        // Partial refresh - only update task areas
-        this.refreshTaskViews();
-    }
-
-    /**
-     * Unpin a task (return to floating)
-     */
-    unpinTask(taskGuid) {
-        console.log(`[Flow] Unpinning task ${taskGuid}`);
-
-        this.pinnedSlots.delete(taskGuid);
-        this.refreshTaskViews();
-    }
-
-    /**
-     * Refresh only the task-related views (backlog + calendar tasks)
-     * More efficient than full re-render
-     */
-    async refreshTaskViews() {
-        if (!this.overlay || this.mode !== 'full') {
-            this.renderOverlay();
-            return;
-        }
-
-        // Get fresh task data
-        let pinnedTasks = [];
-        let floatingTasks = [];
-
-        if (window.plannerHub) {
-            const allTasks = await window.plannerHub.getPlannerHubTasks();
-            const incompleteTasks = allTasks.filter(t => t.status !== 'done');
-
-            for (const task of incompleteTasks) {
-                const pinnedSlot = this.pinnedSlots.get(task.guid);
-                if (pinnedSlot) {
-                    pinnedTasks.push({ ...task, pinnedSlot });
-                } else {
-                    floatingTasks.push(task);
-                }
-            }
-        }
-
-        // Update backlog list
-        const backlogList = this.overlay.querySelector('.flow-backlog-list');
-        if (backlogList) {
-            backlogList.innerHTML = floatingTasks.length > 0
-                ? floatingTasks.map(t => this.renderBacklogTask(t)).join('')
-                : `<div class="flow-backlog-empty">
-                       <div class="flow-backlog-empty-icon"><span class="ti ti-checkbox"></span></div>
-                       <div class="flow-backlog-empty-text">All tasks scheduled!</div>
-                   </div>`;
-        }
-
-        // Update backlog count
-        const backlogCount = this.overlay.querySelector('.flow-section-count');
-        if (backlogCount) {
-            backlogCount.textContent = floatingTasks.length;
-        }
-
-        // Update calendar tasks layer
-        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
-        const tasksLayer = calendarSlots?.querySelector('.flow-calendar-tasks');
-        if (tasksLayer) {
-            const now = new Date();
-            const currentHour = now.getHours();
-            const currentMinute = now.getMinutes();
-
-            // Get calendar events (unchanged, but needed for render)
-            let calendarEvents = [];
-            if (window.calendarHub) {
-                const timeline = await window.plannerHub.getTimelineView({
-                    workdayStart: '07:00',
-                    workdayEnd: '21:00',
-                    includeCalendar: true
-                });
-                calendarEvents = timeline.filter(t => t.type === 'calendar');
-            }
-
-            // Re-render just the tasks layer content
-            tasksLayer.innerHTML = this.renderCalendarTasksOnly(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute);
-        }
-
-        // Re-wire drag events for new elements
-        this.wireDragDropEvents();
-    }
-
-    /**
-     * Render just the calendar tasks (without grid or now line)
-     */
-    renderCalendarTasksOnly(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
-        const range = this.hourRanges[this.hourRangeMode];
-        const totalMinutes = (range.end - range.start + 1) * 60;
-        const nowMinutes = (currentHour - range.start) * 60 + currentMinute;
-
-        let html = '';
-
-        // Pinned tasks
-        for (const task of pinnedTasks) {
-            const slot = task.pinnedSlot;
-            if (!slot) continue;
-
-            const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
-            const topPct = (startMin / totalMinutes) * 100;
-            const durationMin = this.getTaskEstimate(task);
-            const heightPct = (durationMin / totalMinutes) * 100;
-
-            html += this.renderCalendarTask(task, topPct, heightPct, false, false);
-        }
-
-        // Calendar events
-        for (const event of calendarEvents) {
-            if (!event.start) continue;
-
-            const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
-            const topPct = (startMin / totalMinutes) * 100;
-            let durationMin = 60;
-            if (event.end) {
-                durationMin = (event.end - event.start) / 60000;
-            }
-            const heightPct = (durationMin / totalMinutes) * 100;
-
-            html += this.renderCalendarTask(event, topPct, heightPct, false, true);
-        }
-
-        // Floating tasks
-        const minSlotMinutes = 45;
-        let floatStartMin = Math.max(0, nowMinutes);
-        for (const task of floatingTasks) {
-            if (floatStartMin >= totalMinutes) break;
-
-            const topPct = (floatStartMin / totalMinutes) * 100;
-            const durationMin = this.getTaskEstimate(task);
-            const heightPct = (durationMin / totalMinutes) * 100;
-
-            html += this.renderCalendarTask(task, topPct, heightPct, true, false);
-            floatStartMin += Math.max(durationMin, minSlotMinutes);
-        }
-
-        return html;
-    }
-
-    /**
-     * Add all unscheduled tasks as floating items in the calendar
-     */
     async addAllToCalendar() {
         if (!window.plannerHub) return;
-
         const unscheduled = await window.plannerHub.getUnscheduledTasks();
         const tasks = unscheduled.filter(t => t.status !== 'done');
-
-        // For Phase 1, we just log this - actual scheduling comes in Phase 2
         console.log(`[Flow] Add all: ${tasks.length} tasks would be floated into calendar`);
-
-        // Re-render to show updated state
         this.renderOverlay();
     }
 
-    /**
-     * Show estimate dropdown for a task
-     */
     showEstimateDropdown(buttonEl, taskGuid) {
-        // Remove existing dropdown
         const existing = document.querySelector('.flow-estimate-dropdown');
         if (existing) existing.remove();
 
@@ -1432,34 +1157,29 @@ class Plugin extends AppPlugin {
 
         const options = ['15m', '30m', '1h', '2h', '4h'];
         dropdown.innerHTML = `
-            ${options.map(opt => `
-                <div class="flow-estimate-option" data-estimate="${opt}">${opt}</div>
-            `).join('')}
-            <div class="flow-estimate-custom">
-                <input type="text" placeholder="e.g. 90" title="Enter minutes">
-            </div>
+            ${options.map(opt => `<div class="flow-estimate-option" data-estimate="${opt}">${opt}</div>`).join('')}
+            <div class="flow-estimate-custom"><input type="text" placeholder="e.g. 90" title="Enter minutes"></div>
         `;
 
         document.body.appendChild(dropdown);
 
-        // Handle option clicks
         dropdown.addEventListener('click', async (e) => {
             const optionEl = e.target.closest('.flow-estimate-option');
             if (optionEl) {
                 const estimate = optionEl.dataset.estimate;
-                await this.setTaskEstimate(taskGuid, estimate);
+                this.taskEstimates.set(taskGuid, this.estimateToMinutes(estimate));
+                this.renderOverlay();
                 dropdown.remove();
             }
         });
 
-        // Handle custom input
         const input = dropdown.querySelector('input');
-        input.addEventListener('keydown', async (e) => {
+        input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const minutes = parseInt(input.value, 10);
                 if (minutes > 0) {
-                    const estimate = minutes >= 60 ? `${Math.floor(minutes / 60)}h${minutes % 60 > 0 ? minutes % 60 + 'm' : ''}` : `${minutes}m`;
-                    await this.setTaskEstimate(taskGuid, estimate);
+                    this.taskEstimates.set(taskGuid, minutes);
+                    this.renderOverlay();
                     dropdown.remove();
                 }
             } else if (e.key === 'Escape') {
@@ -1467,7 +1187,6 @@ class Plugin extends AppPlugin {
             }
         });
 
-        // Close on outside click
         const closeHandler = (e) => {
             if (!dropdown.contains(e.target) && e.target !== buttonEl) {
                 dropdown.remove();
@@ -1478,19 +1197,6 @@ class Plugin extends AppPlugin {
 
         input.focus();
     }
-
-    /**
-     * Set estimate for a task (Phase 1: just update UI, Phase 2: persist)
-     */
-    async setTaskEstimate(taskGuid, estimate) {
-        console.log(`[Flow] Set estimate for ${taskGuid}: ${estimate}`);
-        // Phase 1: Just re-render, actual persistence comes in Phase 2
-        this.renderOverlay();
-    }
-
-    // =========================================================================
-    // Utilities
-    // =========================================================================
 
     formatTime(ms) {
         const totalSeconds = Math.floor(ms / 1000);
@@ -1511,12 +1217,6 @@ class Plugin extends AppPlugin {
         return div.innerHTML;
     }
 
-    /**
-     * Format task title with linked issue in teal (matches PlannerHub).
-     * @param {Object} task - Task object with text and linkedIssueTitle
-     * @param {number} [maxLen] - Optional max length for truncation
-     * @returns {string} HTML string
-     */
     formatTaskTitle(task, maxLen = null) {
         let html = '';
 
