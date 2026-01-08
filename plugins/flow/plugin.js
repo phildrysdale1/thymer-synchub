@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.8';
+const VERSION = 'v1.2.9';
 /**
  * Flow - Your Focus Companion
  *
@@ -507,30 +507,43 @@ class Plugin extends AppPlugin {
     }
 
     async renderFullOverlay() {
-        // Get data from PlannerHub
-        let backlogTasks = [];
-        let scheduledItems = [];
+        // Clean data model:
+        // - pinnedTasks: tasks with explicit scheduled time (Phase 2)
+        // - floatingTasks: tasks without schedule, stack after "now"
+        // - calendarEvents: from calendar, always have fixed times
+        let pinnedTasks = [];
+        let floatingTasks = [];
         let calendarEvents = [];
 
         if (window.plannerHub) {
-            // Get unscheduled tasks for backlog
-            const unscheduled = await window.plannerHub.getUnscheduledTasks();
-            backlogTasks = unscheduled.filter(t => t.status !== 'done');
+            // Get all incomplete tasks
+            const allTasks = await window.plannerHub.getPlannerHubTasks();
+            const incompleteTasks = allTasks.filter(t => t.status !== 'done');
 
-            // Get timeline view for scheduled items
-            const timeline = await window.plannerHub.getTimelineView({
-                workdayStart: '07:00',
-                workdayEnd: '21:00',
-                includeCalendar: !!window.calendarHub
-            });
+            // Split into pinned vs floating
+            // Phase 1: All tasks are floating (no pinning storage yet)
+            // Phase 2: Check task.pinnedSlot for explicit schedule
+            for (const task of incompleteTasks) {
+                if (task.pinnedSlot) {
+                    pinnedTasks.push(task);
+                } else {
+                    floatingTasks.push(task);
+                }
+            }
 
-            // Separate calendar events and tasks
-            scheduledItems = timeline.filter(t => t.type !== 'calendar');
-            calendarEvents = timeline.filter(t => t.type === 'calendar');
+            // Get calendar events from timeline (only calendar type)
+            if (window.calendarHub) {
+                const timeline = await window.plannerHub.getTimelineView({
+                    workdayStart: '07:00',
+                    workdayEnd: '21:00',
+                    includeCalendar: true
+                });
+                calendarEvents = timeline.filter(t => t.type === 'calendar');
+            }
         }
 
-        // Auto-select hour range based on current time AND scheduled items
-        this.autoSelectHourRange(scheduledItems, calendarEvents);
+        // Auto-select hour range based on current time and calendar events
+        this.autoSelectHourRange(pinnedTasks, calendarEvents);
 
         // Get current time info for "now" line
         const now = new Date();
@@ -570,8 +583,8 @@ class Plugin extends AppPlugin {
                                 <span class="ti ti-stack-2"></span>
                                 Now
                             </span>
-                            <span class="flow-section-count">${backlogTasks.length}</span>
-                            ${backlogTasks.length > 0 ? `
+                            <span class="flow-section-count">${floatingTasks.length}</span>
+                            ${floatingTasks.length > 0 ? `
                                 <div class="flow-section-actions">
                                     <button class="flow-add-all-btn" data-action="add-all" title="Float all tasks into calendar">
                                         <span class="ti ti-playlist-add"></span>
@@ -581,7 +594,7 @@ class Plugin extends AppPlugin {
                             ` : ''}
                         </div>
                         <div class="flow-backlog-list">
-                            ${backlogTasks.length > 0 ? backlogTasks.map(t => this.renderBacklogTask(t)).join('') : `
+                            ${floatingTasks.length > 0 ? floatingTasks.map(t => this.renderBacklogTask(t)).join('') : `
                                 <div class="flow-backlog-empty">
                                     <div class="flow-backlog-empty-icon"><span class="ti ti-checkbox"></span></div>
                                     <div class="flow-backlog-empty-text">All tasks scheduled!</div>
@@ -604,7 +617,7 @@ class Plugin extends AppPlugin {
                             <button class="flow-calendar-pill-btn ${this.hourRangeMode === 'full' ? 'active' : ''}" data-action="hour-range" data-mode="full">24h</button>
                         </div>
                         <div class="flow-calendar-slots">
-                            ${this.renderCalendarSlots(scheduledItems, calendarEvents, backlogTasks, currentHour, currentMinute)}
+                            ${this.renderCalendarSlots(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute)}
                         </div>
                     </div>
                 </div>
@@ -621,7 +634,7 @@ class Plugin extends AppPlugin {
                     <div class="flow-active-timer">${isIdle ? '--:--' : timeStr}</div>
                     <div class="flow-active-controls">
                         ${isIdle ? `
-                            ${backlogTasks.length > 0 ? `
+                            ${floatingTasks.length > 0 ? `
                                 <button class="flow-active-btn start" data-action="start-next">
                                     <span class="ti ti-player-play"></span>
                                     Start
@@ -707,8 +720,13 @@ class Plugin extends AppPlugin {
      * 1. Grid layer - static hour slots (background)
      * 2. Tasks layer - absolutely positioned tasks (overlay)
      * 3. Now line - positioned at current time
+     *
+     * Data model:
+     * - pinnedTasks: have explicit pinnedSlot (Phase 2)
+     * - calendarEvents: from calendar, have start/end
+     * - floatingTasks: no schedule, stack after "now"
      */
-    renderCalendarSlots(scheduledTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
+    renderCalendarSlots(pinnedTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
         const range = this.hourRanges[this.hourRangeMode];
         const totalHours = range.end - range.start + 1;
         const totalMinutes = totalHours * 60;
@@ -724,7 +742,7 @@ class Plugin extends AppPlugin {
             `;
         }
 
-        // 2. Calculate "now" line position
+        // 2. Calculate "now" position in minutes from range start
         const nowMinutes = (currentHour - range.start) * 60 + currentMinute;
         const nowPercent = Math.max(0, Math.min(100, (nowMinutes / totalMinutes) * 100));
         const showNowLine = currentHour >= range.start && currentHour <= range.end;
@@ -736,55 +754,51 @@ class Plugin extends AppPlugin {
             </div>
         ` : '';
 
-        // 3. Render tasks layer (overlay)
+        // 3. Build render list
         let tasksHtml = '';
 
-        // Track scheduled task GUIDs to avoid duplicates in floating
-        const scheduledGuids = new Set();
+        // Pinned tasks - rendered at their explicit slot time (Phase 2)
+        for (const task of pinnedTasks) {
+            const slot = task.pinnedSlot; // Date object
+            if (!slot) continue;
 
-        // Scheduled/pinned tasks
-        for (const task of scheduledTasks) {
-            if (task.start) {
-                scheduledGuids.add(task.guid);
-                const startMin = (task.start.getHours() - range.start) * 60 + task.start.getMinutes();
-                const topPct = (startMin / totalMinutes) * 100;
-                const durationMin = this.estimateToMinutes(task.estimate) || 30;
-                const heightPct = (durationMin / totalMinutes) * 100;
+            const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
+            const topPct = (startMin / totalMinutes) * 100;
+            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const heightPct = (durationMin / totalMinutes) * 100;
 
-                tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
-            }
+            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
         }
 
-        // Calendar events
+        // Calendar events - rendered at their fixed times
         for (const event of calendarEvents) {
-            if (event.start) {
-                const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
-                const topPct = (startMin / totalMinutes) * 100;
-                let durationMin = 60; // default 1hr
-                if (event.end) {
-                    durationMin = (event.end - event.start) / 60000;
-                }
-                const heightPct = (durationMin / totalMinutes) * 100;
+            if (!event.start) continue;
 
-                tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
+            const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
+            const topPct = (startMin / totalMinutes) * 100;
+            let durationMin = 60; // default 1hr
+            if (event.end) {
+                durationMin = (event.end - event.start) / 60000;
             }
+            const heightPct = (durationMin / totalMinutes) * 100;
+
+            tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
         }
 
-        // Floating tasks - stack sequentially after "now"
-        // Skip tasks that are already scheduled
-        // Use minimum slot height (45min equivalent) to prevent visual overlap
+        // Floating tasks - stack sequentially starting at "now"
+        // Minimum spacing to prevent visual overlap (CSS min-height issue)
         const minSlotMinutes = 45;
-        let floatStartMin = nowMinutes;
+        let floatStartMin = Math.max(0, nowMinutes); // Start at now (or 0 if now is before range)
         for (const task of floatingTasks) {
-            if (scheduledGuids.has(task.guid)) continue; // Skip already scheduled
-            if (floatStartMin >= totalMinutes) break; // past end of visible range
+            if (floatStartMin >= totalMinutes) break; // Past end of visible range
 
             const topPct = (floatStartMin / totalMinutes) * 100;
             const durationMin = this.estimateToMinutes(task.estimate) || 30;
             const heightPct = (durationMin / totalMinutes) * 100;
 
             tasksHtml += this.renderCalendarTask(task, topPct, heightPct, true, false);
-            // Use at least minSlotMinutes for spacing to prevent visual overlap
+
+            // Advance position by at least minSlotMinutes to prevent overlap
             floatStartMin += Math.max(durationMin, minSlotMinutes);
         }
 
