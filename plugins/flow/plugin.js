@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.6';
+const VERSION = 'v1.3.8';
 /**
  * Flow - Your Focus Companion
  *
@@ -317,9 +317,23 @@ class Plugin extends AppPlugin {
         this.planningRefreshInterval = setInterval(() => {
             if (this.overlay && this.mode === 'full') {
                 console.log('[Flow] Refreshing planning view');
-                this.renderOverlay();
+                this.refreshTaskViews();
+                // Also update the now line position
+                this.updateNowLine();
             }
         }, 5 * 60 * 1000);
+    }
+
+    updateNowLine() {
+        const nowLine = this.overlay?.querySelector('.flow-now-line');
+        if (!nowLine) return;
+
+        const now = new Date();
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const nowMinutes = (now.getHours() - range.start) * 60 + now.getMinutes();
+        const nowPercent = Math.max(0, Math.min(100, (nowMinutes / totalMinutes) * 100));
+        nowLine.style.top = `${nowPercent}%`;
     }
 
     stopPlanningRefresh() {
@@ -751,11 +765,137 @@ class Plugin extends AppPlugin {
     }
 
     // =========================================================================
+    // Partial Refresh (for smooth drag/resize)
+    // =========================================================================
+
+    /**
+     * Refresh only the backlog list and calendar tasks (not the whole overlay)
+     */
+    async refreshTaskViews() {
+        if (!this.overlay || this.mode !== 'full') return;
+
+        const [backlogHtml, tasksHtml] = await this.buildTaskViewsHtml();
+
+        // Update backlog
+        const backlogList = this.overlay.querySelector('.flow-backlog-list');
+        if (backlogList) {
+            backlogList.innerHTML = backlogHtml;
+        }
+
+        // Update calendar tasks
+        const calendarTasks = this.overlay.querySelector('.flow-calendar-tasks');
+        if (calendarTasks) {
+            calendarTasks.innerHTML = tasksHtml;
+        }
+
+        // Update backlog count
+        const countEl = this.overlay.querySelector('.flow-section-count');
+        if (countEl && this._lastTaskCount !== undefined) {
+            countEl.textContent = this._lastTaskCount;
+        }
+    }
+
+    /**
+     * Build HTML for backlog list and calendar tasks
+     */
+    async buildTaskViewsHtml() {
+        let pinnedTasks = [];
+        let floatingTasks = [];
+        let calendarEvents = [];
+
+        if (window.plannerHub) {
+            const allTasks = await window.plannerHub.getPlannerHubTasks();
+            const incompleteTasks = allTasks.filter(t => t.status !== 'done');
+
+            for (const task of incompleteTasks) {
+                const pinnedSlot = this.pinnedSlots.get(task.guid);
+                if (pinnedSlot) {
+                    pinnedTasks.push({ ...task, pinnedSlot });
+                } else {
+                    floatingTasks.push(task);
+                }
+            }
+
+            if (window.calendarHub) {
+                const timeline = await window.plannerHub.getTimelineView({
+                    workdayStart: '07:00',
+                    workdayEnd: '21:00',
+                    includeCalendar: true
+                });
+                calendarEvents = timeline.filter(t => t.type === 'calendar');
+            }
+        }
+
+        // Store count for updating the badge
+        this._lastTaskCount = floatingTasks.length + pinnedTasks.length;
+
+        // Build backlog HTML
+        const backlogTasks = this.hidePlanned
+            ? floatingTasks
+            : [...floatingTasks, ...pinnedTasks];
+
+        const backlogHtml = backlogTasks.length > 0
+            ? backlogTasks.map(t => this.renderBacklogTask(t)).join('')
+            : `<div class="flow-backlog-empty">
+                   <div class="flow-backlog-empty-icon"><span class="ti ti-checkbox"></span></div>
+                   <div class="flow-backlog-empty-text">${this.hidePlanned ? 'All remaining tasks planned!' : 'All tasks scheduled!'}</div>
+               </div>`;
+
+        // Build calendar tasks HTML
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+        const now = new Date();
+        const nowMinutes = (now.getHours() - range.start) * 60 + now.getMinutes();
+
+        let tasksHtml = '';
+
+        // Pinned tasks
+        for (const task of pinnedTasks) {
+            const slot = task.pinnedSlot;
+            if (!slot) continue;
+            const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
+            const topPct = (startMin / totalMinutes) * 100;
+            const durationMin = this.getTaskEstimate(task.guid);
+            const heightPct = (durationMin / totalMinutes) * 100;
+            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
+        }
+
+        // Calendar events
+        for (const event of calendarEvents) {
+            if (!event.start) continue;
+            const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
+            const topPct = (startMin / totalMinutes) * 100;
+            let durationMin = 60;
+            if (event.end) durationMin = (event.end - event.start) / 60000;
+            const heightPct = (durationMin / totalMinutes) * 100;
+            tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
+        }
+
+        // Floating tasks
+        const minSlotMinutes = 45;
+        let floatStartMin = Math.max(0, nowMinutes);
+        for (const task of floatingTasks) {
+            if (floatStartMin >= totalMinutes) break;
+            const topPct = (floatStartMin / totalMinutes) * 100;
+            const durationMin = this.getTaskEstimate(task.guid);
+            const heightPct = (durationMin / totalMinutes) * 100;
+            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, true, false);
+            floatStartMin += Math.max(durationMin, minSlotMinutes);
+        }
+
+        return [backlogHtml, tasksHtml];
+    }
+
+    // =========================================================================
     // Event Wiring
     // =========================================================================
 
     wireOverlayEvents() {
         if (!this.overlay) return;
+
+        // Prevent duplicate event listeners
+        if (this.overlay._eventsWired) return;
+        this.overlay._eventsWired = true;
 
         // Click handlers
         this.overlay.addEventListener('click', async (e) => {
@@ -763,7 +903,7 @@ class Plugin extends AppPlugin {
             if (!actionEl) return;
 
             // Don't handle click if we just finished a drag/resize
-            if (e.target.closest('[data-draggable]') && this.justFinishedInteraction) {
+            if (this.justFinishedInteraction) {
                 return;
             }
 
@@ -787,7 +927,13 @@ class Plugin extends AppPlugin {
                     break;
                 case 'toggle-hide-planned':
                     this.hidePlanned = !this.hidePlanned;
-                    this.renderOverlay();
+                    this.refreshTaskViews();
+                    // Also update the toggle button state
+                    const toggleBtn = this.overlay.querySelector('.flow-hide-planned-btn');
+                    if (toggleBtn) {
+                        toggleBtn.classList.toggle('active', this.hidePlanned);
+                        toggleBtn.innerHTML = `<span class="ti ti-${this.hidePlanned ? 'eye' : 'eye-off'}"></span> ${this.hidePlanned ? 'Show' : 'Hide'} planned`;
+                    }
                     break;
                 case 'estimate':
                     this.showEstimateDropdown(actionEl, actionEl.dataset.guid);
@@ -1041,8 +1187,12 @@ class Plugin extends AppPlugin {
             console.log(`[Flow] Resize complete: ${taskGuid}, ${this.interaction.startEstimate}m → ${newEstimate}m`);
         }
 
-        // Re-render to fix height
-        this.renderOverlay();
+        // Prevent click from firing after resize
+        this.justFinishedInteraction = true;
+        setTimeout(() => { this.justFinishedInteraction = false; }, 100);
+
+        // Partial refresh (smooth, no flicker)
+        this.refreshTaskViews();
     }
 
     // =========================================================================
@@ -1069,13 +1219,13 @@ class Plugin extends AppPlugin {
     pinTaskToSlot(taskGuid, time) {
         console.log(`[Flow] Pinning task ${taskGuid} to ${time.toLocaleTimeString()}`);
         this.pinnedSlots.set(taskGuid, time);
-        this.renderOverlay();
+        this.refreshTaskViews();
     }
 
     unpinTask(taskGuid) {
         console.log(`[Flow] Unpinning task ${taskGuid}`);
         this.pinnedSlots.delete(taskGuid);
-        this.renderOverlay();
+        this.refreshTaskViews();
     }
 
     getTaskEstimate(guid) {
@@ -1142,7 +1292,7 @@ class Plugin extends AppPlugin {
         const unscheduled = await window.plannerHub.getUnscheduledTasks();
         const tasks = unscheduled.filter(t => t.status !== 'done');
         console.log(`[Flow] Add all: ${tasks.length} tasks would be floated into calendar`);
-        this.renderOverlay();
+        this.refreshTaskViews();
     }
 
     showEstimateDropdown(buttonEl, taskGuid) {
@@ -1168,7 +1318,7 @@ class Plugin extends AppPlugin {
             if (optionEl) {
                 const estimate = optionEl.dataset.estimate;
                 this.taskEstimates.set(taskGuid, this.estimateToMinutes(estimate));
-                this.renderOverlay();
+                this.refreshTaskViews();
                 dropdown.remove();
             }
         });
@@ -1179,7 +1329,7 @@ class Plugin extends AppPlugin {
                 const minutes = parseInt(input.value, 10);
                 if (minutes > 0) {
                     this.taskEstimates.set(taskGuid, minutes);
-                    this.renderOverlay();
+                    this.refreshTaskViews();
                     dropdown.remove();
                 }
             } else if (e.key === 'Escape') {
