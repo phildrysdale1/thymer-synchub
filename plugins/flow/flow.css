@@ -1,5 +1,5 @@
 /* ========================================
-   FLOW PLUGIN CSS - v1.2.4
+   FLOW PLUGIN CSS - v1.3.3
    Load this in Thymer's Custom CSS settings
    ======================================== */
 
@@ -778,6 +778,49 @@
     color: #4f9eed;
     font-weight: 600;
     letter-spacing: 0.5px;
+}
+
+/* Resize Handle - appears on hover at bottom of task */
+.flow-resize-handle {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 8px;
+    cursor: ns-resize;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    border-radius: 0 0 6px 6px;
+    background: linear-gradient(to top, rgba(79, 158, 237, 0.4), transparent);
+}
+
+.flow-resize-handle::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 3px;
+    background: rgba(79, 158, 237, 0.6);
+    border-radius: 2px;
+}
+
+/* Show handle when hovering bottom half of task */
+.flow-calendar-task:hover .flow-resize-handle {
+    opacity: 1;
+}
+
+/* Resizing state */
+.flow-calendar-task.resizing {
+    z-index: 30;
+    box-shadow: 0 4px 16px rgba(79, 158, 237, 0.3);
+    border-color: #4f9eed;
+}
+
+.flow-calendar-task.resizing .flow-resize-handle {
+    opacity: 1;
+    background: linear-gradient(to top, rgba(79, 158, 237, 0.6), transparent);
 }
 
 /* Active Session Bar */

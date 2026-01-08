@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.2';
+const VERSION = 'v1.3.3';
 /**
  * Flow - Your Focus Companion
  *
@@ -35,7 +35,9 @@ class Plugin extends AppPlugin {
 
         // Drag-drop state (Phase 2)
         this.pinnedSlots = new Map(); // taskGuid → Date (pinned time)
+        this.taskEstimates = new Map(); // taskGuid → minutes (adjusted estimates)
         this.draggedTask = null; // Currently dragged task
+        this.resizingTask = null; // Currently resizing task { guid, element, startY, startHeight, startEstimate }
 
         // Wait for plannerHub to be available
         if (window.plannerHub) {
@@ -767,7 +769,7 @@ class Plugin extends AppPlugin {
 
             const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
             const topPct = (startMin / totalMinutes) * 100;
-            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const durationMin = this.getTaskEstimate(task);
             const heightPct = (durationMin / totalMinutes) * 100;
 
             tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
@@ -796,7 +798,7 @@ class Plugin extends AppPlugin {
             if (floatStartMin >= totalMinutes) break; // Past end of visible range
 
             const topPct = (floatStartMin / totalMinutes) * 100;
-            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const durationMin = this.getTaskEstimate(task);
             const heightPct = (durationMin / totalMinutes) * 100;
 
             tasksHtml += this.renderCalendarTask(task, topPct, heightPct, true, false);
@@ -826,8 +828,9 @@ class Plugin extends AppPlugin {
             ? this.formatHourMin(item.pinnedSlot)
             : (item.estimate ? `~${item.estimate}` : '');
 
-        // Tasks are draggable, calendar events are not
+        // Tasks are draggable and resizable, calendar events are not
         const draggable = !isCalendar ? 'draggable="true"' : '';
+        const resizeHandle = !isCalendar ? '<div class="flow-resize-handle" data-resize="true"></div>' : '';
 
         return `
             <div class="flow-calendar-task ${isFloating ? 'floating' : ''} ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
@@ -835,6 +838,7 @@ class Plugin extends AppPlugin {
                  data-guid="${item.guid}" data-action="start-task" ${draggable}>
                 <div class="flow-calendar-task-title">${title}</div>
                 ${timeLabel ? `<div class="flow-calendar-task-time">${timeLabel}</div>` : ''}
+                ${resizeHandle}
             </div>
         `;
     }
@@ -940,6 +944,9 @@ class Plugin extends AppPlugin {
 
         // Drag-drop handlers for task scheduling
         this.wireDragDropEvents();
+
+        // Resize handlers for adjusting task duration
+        this.wireResizeEvents();
     }
 
     /**
@@ -1047,7 +1054,7 @@ class Plugin extends AppPlugin {
         const totalMinutes = (range.end - range.start + 1) * 60;
         const startMin = (startTime.getHours() - range.start) * 60 + startTime.getMinutes();
         const topPct = (startMin / totalMinutes) * 100;
-        const durationMin = this.estimateToMinutes(this.draggedTask.estimate) || 30;
+        const durationMin = this.getTaskEstimate(this.draggedTask.guid);
         const heightPct = (durationMin / totalMinutes) * 100;
 
         // Calculate end time
@@ -1070,6 +1077,144 @@ class Plugin extends AppPlugin {
      */
     removeDropGhost(container) {
         container.querySelectorAll('.drop-ghost').forEach(el => el.remove());
+    }
+
+    /**
+     * Wire up resize events for adjusting task duration
+     */
+    wireResizeEvents() {
+        if (!this.overlay) return;
+
+        const calendarSlots = this.overlay.querySelector('.flow-calendar-slots');
+        if (!calendarSlots) return;
+
+        // Mouse down on resize handle
+        calendarSlots.addEventListener('mousedown', (e) => {
+            const handle = e.target.closest('.flow-resize-handle');
+            if (!handle) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const taskEl = handle.closest('.flow-calendar-task');
+            if (!taskEl) return;
+
+            const guid = taskEl.dataset.guid;
+            const rect = taskEl.getBoundingClientRect();
+            const currentEstimate = this.getTaskEstimate(guid);
+
+            this.resizingTask = {
+                guid,
+                element: taskEl,
+                startY: e.clientY,
+                startHeight: rect.height,
+                startEstimate: currentEstimate,
+                containerRect: calendarSlots.getBoundingClientRect(),
+                containerHeight: calendarSlots.scrollHeight
+            };
+
+            taskEl.classList.add('resizing');
+            document.body.style.cursor = 'ns-resize';
+            document.body.style.userSelect = 'none';
+
+            console.log(`[Flow] Resize start: ${guid}, estimate: ${currentEstimate}m`);
+        });
+
+        // Mouse move - update resize preview
+        document.addEventListener('mousemove', (e) => {
+            if (!this.resizingTask) return;
+
+            const deltaY = e.clientY - this.resizingTask.startY;
+            this.updateResizePreview(deltaY);
+        });
+
+        // Mouse up - complete resize
+        document.addEventListener('mouseup', (e) => {
+            if (!this.resizingTask) return;
+
+            const deltaY = e.clientY - this.resizingTask.startY;
+            this.completeResize(deltaY);
+
+            this.resizingTask.element.classList.remove('resizing');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            this.resizingTask = null;
+        });
+    }
+
+    /**
+     * Get task estimate in minutes (from local overrides, task data, or default)
+     */
+    getTaskEstimate(guidOrTask) {
+        const guid = typeof guidOrTask === 'string' ? guidOrTask : guidOrTask?.guid;
+
+        // Check local overrides first
+        if (guid && this.taskEstimates.has(guid)) {
+            return this.taskEstimates.get(guid);
+        }
+
+        // Try to get from task object
+        if (typeof guidOrTask === 'object' && guidOrTask?.estimate) {
+            return this.estimateToMinutes(guidOrTask.estimate);
+        }
+
+        // Default estimate
+        return 30;
+    }
+
+    /**
+     * Update resize preview (visual feedback)
+     */
+    updateResizePreview(deltaY) {
+        if (!this.resizingTask) return;
+
+        const { element, startHeight, startEstimate, containerHeight } = this.resizingTask;
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+
+        // Convert deltaY to minutes
+        const deltaMinutes = (deltaY / containerHeight) * totalMinutes;
+
+        // Calculate new estimate (snap to 15-min)
+        const newEstimate = Math.max(15, Math.round((startEstimate + deltaMinutes) / 15) * 15);
+        const newHeightPct = (newEstimate / totalMinutes) * 100;
+
+        // Update element height
+        element.style.height = `${newHeightPct}%`;
+
+        // Show time preview in element
+        const timeEl = element.querySelector('.flow-calendar-task-time');
+        if (timeEl) {
+            const hours = Math.floor(newEstimate / 60);
+            const mins = newEstimate % 60;
+            const label = hours > 0 ? `${hours}h${mins > 0 ? mins + 'm' : ''}` : `${mins}m`;
+            timeEl.textContent = `~${label}`;
+        }
+    }
+
+    /**
+     * Complete resize and save new estimate
+     */
+    completeResize(deltaY) {
+        if (!this.resizingTask) return;
+
+        const { guid, startEstimate, containerHeight } = this.resizingTask;
+        const range = this.hourRanges[this.hourRangeMode];
+        const totalMinutes = (range.end - range.start + 1) * 60;
+
+        // Convert deltaY to minutes
+        const deltaMinutes = (deltaY / containerHeight) * totalMinutes;
+
+        // Calculate new estimate (snap to 15-min, minimum 15m)
+        const newEstimate = Math.max(15, Math.round((startEstimate + deltaMinutes) / 15) * 15);
+
+        console.log(`[Flow] Resize complete: ${guid}, ${startEstimate}m → ${newEstimate}m`);
+
+        // Save new estimate
+        this.taskEstimates.set(guid, newEstimate);
+
+        // Refresh to update floating task positions
+        this.refreshTaskViews();
     }
 
     /**
@@ -1212,7 +1357,7 @@ class Plugin extends AppPlugin {
 
             const startMin = (slot.getHours() - range.start) * 60 + slot.getMinutes();
             const topPct = (startMin / totalMinutes) * 100;
-            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const durationMin = this.getTaskEstimate(task);
             const heightPct = (durationMin / totalMinutes) * 100;
 
             html += this.renderCalendarTask(task, topPct, heightPct, false, false);
@@ -1240,7 +1385,7 @@ class Plugin extends AppPlugin {
             if (floatStartMin >= totalMinutes) break;
 
             const topPct = (floatStartMin / totalMinutes) * 100;
-            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const durationMin = this.getTaskEstimate(task);
             const heightPct = (durationMin / totalMinutes) * 100;
 
             html += this.renderCalendarTask(task, topPct, heightPct, true, false);
