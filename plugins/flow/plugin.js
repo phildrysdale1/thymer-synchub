@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.7';
+const VERSION = 'v1.2.8';
 /**
  * Flow - Your Focus Companion
  *
@@ -739,9 +739,13 @@ class Plugin extends AppPlugin {
         // 3. Render tasks layer (overlay)
         let tasksHtml = '';
 
+        // Track scheduled task GUIDs to avoid duplicates in floating
+        const scheduledGuids = new Set();
+
         // Scheduled/pinned tasks
         for (const task of scheduledTasks) {
             if (task.start) {
+                scheduledGuids.add(task.guid);
                 const startMin = (task.start.getHours() - range.start) * 60 + task.start.getMinutes();
                 const topPct = (startMin / totalMinutes) * 100;
                 const durationMin = this.estimateToMinutes(task.estimate) || 30;
@@ -767,8 +771,12 @@ class Plugin extends AppPlugin {
         }
 
         // Floating tasks - stack sequentially after "now"
+        // Skip tasks that are already scheduled
+        // Use minimum slot height (45min equivalent) to prevent visual overlap
+        const minSlotMinutes = 45;
         let floatStartMin = nowMinutes;
         for (const task of floatingTasks) {
+            if (scheduledGuids.has(task.guid)) continue; // Skip already scheduled
             if (floatStartMin >= totalMinutes) break; // past end of visible range
 
             const topPct = (floatStartMin / totalMinutes) * 100;
@@ -776,7 +784,8 @@ class Plugin extends AppPlugin {
             const heightPct = (durationMin / totalMinutes) * 100;
 
             tasksHtml += this.renderCalendarTask(task, topPct, heightPct, true, false);
-            floatStartMin += durationMin;
+            // Use at least minSlotMinutes for spacing to prevent visual overlap
+            floatStartMin += Math.max(durationMin, minSlotMinutes);
         }
 
         return `
