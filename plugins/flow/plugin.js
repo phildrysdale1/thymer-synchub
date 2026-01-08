@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.5';
+const VERSION = 'v1.2.6';
 /**
  * Flow - Your Focus Companion
  *
@@ -26,6 +26,7 @@ class Plugin extends AppPlugin {
 
         // Planning view state
         this.hourRangeMode = 'normal'; // 'normal' (9-17), 'extended' (7-21), 'full' (0-23)
+        this.planningRefreshInterval = null; // 5-minute refresh for "now" line and floating tasks
         this.hourRanges = {
             normal: { start: 9, end: 17 },
             extended: { start: 7, end: 21 },
@@ -307,9 +308,33 @@ class Plugin extends AppPlugin {
         document.body.appendChild(this.overlay);
 
         this.renderOverlay();
+        this.startPlanningRefresh();
+    }
+
+    /**
+     * Start 5-minute refresh interval for planning view
+     * Updates "now" line position and floating task placement
+     */
+    startPlanningRefresh() {
+        this.stopPlanningRefresh();
+        // Refresh every 5 minutes (300000ms)
+        this.planningRefreshInterval = setInterval(() => {
+            if (this.overlay && this.mode === 'full') {
+                console.log('[Flow] Refreshing planning view');
+                this.renderOverlay();
+            }
+        }, 5 * 60 * 1000);
+    }
+
+    stopPlanningRefresh() {
+        if (this.planningRefreshInterval) {
+            clearInterval(this.planningRefreshInterval);
+            this.planningRefreshInterval = null;
+        }
     }
 
     hideOverlay() {
+        this.stopPlanningRefresh();
         if (this.overlay) {
             this.overlay.remove();
             this.overlay = null;
@@ -579,7 +604,7 @@ class Plugin extends AppPlugin {
                             <button class="flow-calendar-pill-btn ${this.hourRangeMode === 'full' ? 'active' : ''}" data-action="hour-range" data-mode="full">24h</button>
                         </div>
                         <div class="flow-calendar-slots">
-                            ${this.renderCalendarSlots(scheduledItems, calendarEvents, currentHour, currentMinute)}
+                            ${this.renderCalendarSlots(scheduledItems, calendarEvents, backlogTasks, currentHour, currentMinute)}
                         </div>
                     </div>
                 </div>
@@ -679,18 +704,19 @@ class Plugin extends AppPlugin {
 
     /**
      * Render calendar slots with tasks and "now" line
+     * Floating tasks auto-fill into empty slots after "now"
      */
-    renderCalendarSlots(scheduledTasks, calendarEvents, currentHour, currentMinute) {
+    renderCalendarSlots(scheduledTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
         const range = this.hourRanges[this.hourRangeMode];
         const slots = [];
 
-        // Build lookup for scheduled items by hour
+        // Build lookup for scheduled/pinned items by hour
         const itemsByHour = {};
         for (const task of scheduledTasks) {
             if (task.start) {
                 const hour = task.start.getHours();
                 if (!itemsByHour[hour]) itemsByHour[hour] = [];
-                itemsByHour[hour].push({ ...task, type: 'task' });
+                itemsByHour[hour].push({ ...task, type: 'task', pinned: true });
             }
         }
         for (const event of calendarEvents) {
@@ -701,17 +727,23 @@ class Plugin extends AppPlugin {
             }
         }
 
+        // Queue floating tasks to fill empty slots after "now"
+        const floatingQueue = [...floatingTasks];
+        let floatingIndex = 0;
+
         for (let h = range.start; h <= range.end; h++) {
             const hourStr = h.toString().padStart(2, '0') + ':00';
-            const items = itemsByHour[h] || [];
             const isNowHour = h === currentHour;
             const nowOffset = isNowHour ? (currentMinute / 60) * 100 : 0;
+            const isAfterNow = h > currentHour;
 
             let contentHtml;
-            if (items.length > 0) {
-                const item = items[0]; // Show first item in slot
+            const pinnedItems = itemsByHour[h] || [];
+
+            if (pinnedItems.length > 0) {
+                // Show pinned/scheduled item
+                const item = pinnedItems[0];
                 const isCalendar = item.type === 'calendar';
-                const isFloating = item.type === 'task' && !item.pinned;
                 const isActive = this.session?.taskGuid === item.guid;
                 const title = this.formatTaskTitle(item);
                 const timeLabel = item.end
@@ -720,10 +752,26 @@ class Plugin extends AppPlugin {
 
                 contentHtml = `
                     <div class="flow-slot-content">
-                        <div class="flow-slot-task ${isCalendar ? 'calendar-event' : ''} ${isFloating ? 'floating' : ''} ${isActive ? 'active' : ''}"
+                        <div class="flow-slot-task ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
                              data-guid="${item.guid}" data-action="start-task">
                             <div class="flow-slot-task-title">${title}</div>
                             ${timeLabel ? `<div class="flow-slot-task-time">${timeLabel}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            } else if (isAfterNow && floatingIndex < floatingQueue.length) {
+                // Fill empty slot after "now" with floating task
+                const task = floatingQueue[floatingIndex++];
+                const isActive = this.session?.taskGuid === task.guid;
+                const title = this.formatTaskTitle(task);
+                const estimate = task.estimate || '30m';
+
+                contentHtml = `
+                    <div class="flow-slot-content">
+                        <div class="flow-slot-task floating ${isActive ? 'active' : ''}"
+                             data-guid="${task.guid}" data-action="start-task">
+                            <div class="flow-slot-task-title">${title}</div>
+                            <div class="flow-slot-task-time">~${estimate}</div>
                         </div>
                     </div>
                 `;
