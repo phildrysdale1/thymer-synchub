@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.8';
+const VERSION = 'v1.3.9';
 /**
  * Flow - Your Focus Companion
  *
@@ -87,7 +87,22 @@ class Plugin extends AppPlugin {
      * Setup global mouse handlers for drag and resize (once, on document)
      */
     setupGlobalMouseHandlers() {
-        document.addEventListener('mousemove', (e) => this.handleGlobalMouseMove(e));
+        // Throttled mousemove using requestAnimationFrame (~60fps)
+        let pendingMouseMove = null;
+        document.addEventListener('mousemove', (e) => {
+            if (!this.interaction) return;
+            pendingMouseMove = e;
+            if (!this._rafPending) {
+                this._rafPending = true;
+                requestAnimationFrame(() => {
+                    this._rafPending = false;
+                    if (pendingMouseMove) {
+                        this.handleGlobalMouseMove(pendingMouseMove);
+                        pendingMouseMove = null;
+                    }
+                });
+            }
+        });
         document.addEventListener('mouseup', (e) => this.handleGlobalMouseUp(e));
     }
 
@@ -700,6 +715,10 @@ class Plugin extends AppPlugin {
             </div>
         ` : '';
 
+        // Calculate overlap columns for pinned tasks and calendar events
+        const scheduledItems = [...pinnedTasks, ...calendarEvents];
+        const overlapColumns = this.calculateOverlapColumns(scheduledItems);
+
         // Tasks
         let tasksHtml = '';
 
@@ -711,7 +730,8 @@ class Plugin extends AppPlugin {
             const topPct = (startMin / totalMinutes) * 100;
             const durationMin = this.getTaskEstimate(task.guid);
             const heightPct = (durationMin / totalMinutes) * 100;
-            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
+            const colInfo = overlapColumns.get(task.guid);
+            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false, colInfo);
         }
 
         // Calendar events
@@ -722,10 +742,11 @@ class Plugin extends AppPlugin {
             let durationMin = 60;
             if (event.end) durationMin = (event.end - event.start) / 60000;
             const heightPct = (durationMin / totalMinutes) * 100;
-            tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
+            const colInfo = overlapColumns.get(event.guid);
+            tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true, colInfo);
         }
 
-        // Floating tasks
+        // Floating tasks (don't participate in overlap - they're projections)
         const minSlotMinutes = 45;
         let floatStartMin = Math.max(0, nowMinutes);
         for (const task of floatingTasks) {
@@ -744,7 +765,7 @@ class Plugin extends AppPlugin {
         `;
     }
 
-    renderCalendarTask(item, topPct, heightPct, isFloating, isCalendar) {
+    renderCalendarTask(item, topPct, heightPct, isFloating, isCalendar, colInfo = null) {
         const isActive = this.session?.taskGuid === item.guid;
         const title = this.formatTaskTitle(item);
         const timeLabel = item.pinnedSlot
@@ -753,9 +774,19 @@ class Plugin extends AppPlugin {
 
         const draggable = !isCalendar ? 'data-draggable="true"' : '';
 
+        // Column positioning for overlapping tasks
+        let colStyle = '';
+        if (colInfo && colInfo.totalColumns > 1) {
+            const gap = 2; // pixels between columns
+            const width = 100 / colInfo.totalColumns;
+            const left = colInfo.column * width;
+            // Add small gap: use calc to subtract gap from width
+            colStyle = `left: calc(${left}% + ${colInfo.column > 0 ? gap/2 : 0}px); width: calc(${width}% - ${gap}px);`;
+        }
+
         return `
             <div class="flow-calendar-task ${isFloating ? 'floating' : ''} ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
-                 style="top: ${topPct}%; height: ${heightPct}%;"
+                 style="top: ${topPct}%; height: ${heightPct}%; ${colStyle}"
                  data-guid="${item.guid}" data-action="start-task" ${draggable}>
                 <div class="flow-calendar-task-title">${title}</div>
                 ${timeLabel ? `<div class="flow-calendar-task-time">${timeLabel}</div>` : ''}
@@ -847,6 +878,10 @@ class Plugin extends AppPlugin {
         const now = new Date();
         const nowMinutes = (now.getHours() - range.start) * 60 + now.getMinutes();
 
+        // Calculate overlap columns for pinned tasks and calendar events
+        const scheduledItems = [...pinnedTasks, ...calendarEvents];
+        const overlapColumns = this.calculateOverlapColumns(scheduledItems);
+
         let tasksHtml = '';
 
         // Pinned tasks
@@ -857,7 +892,8 @@ class Plugin extends AppPlugin {
             const topPct = (startMin / totalMinutes) * 100;
             const durationMin = this.getTaskEstimate(task.guid);
             const heightPct = (durationMin / totalMinutes) * 100;
-            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
+            const colInfo = overlapColumns.get(task.guid);
+            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false, colInfo);
         }
 
         // Calendar events
@@ -868,10 +904,11 @@ class Plugin extends AppPlugin {
             let durationMin = 60;
             if (event.end) durationMin = (event.end - event.start) / 60000;
             const heightPct = (durationMin / totalMinutes) * 100;
-            tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
+            const colInfo = overlapColumns.get(event.guid);
+            tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true, colInfo);
         }
 
-        // Floating tasks
+        // Floating tasks (don't participate in overlap - they're projections)
         const minSlotMinutes = 45;
         let floatStartMin = Math.max(0, nowMinutes);
         for (const task of floatingTasks) {
@@ -1198,6 +1235,65 @@ class Plugin extends AppPlugin {
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    /**
+     * Calculate column positions for overlapping tasks
+     * Returns Map of guid → { column, totalColumns }
+     */
+    calculateOverlapColumns(items) {
+        if (items.length === 0) return new Map();
+
+        // Build time ranges for each item
+        const ranges = items.map(item => {
+            let startMin, endMin;
+            if (item.pinnedSlot) {
+                const slot = item.pinnedSlot;
+                startMin = slot.getHours() * 60 + slot.getMinutes();
+                endMin = startMin + this.getTaskEstimate(item.guid);
+            } else if (item.start) {
+                startMin = item.start.getHours() * 60 + item.start.getMinutes();
+                endMin = item.end
+                    ? item.end.getHours() * 60 + item.end.getMinutes()
+                    : startMin + 60;
+            } else {
+                return null;
+            }
+            return { guid: item.guid, startMin, endMin };
+        }).filter(Boolean);
+
+        // Sort by start time, then by end time
+        ranges.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+
+        // Greedy column assignment
+        const columns = new Map(); // guid → column index
+        const columnEnds = []; // columnEnds[i] = end time of last item in column i
+
+        for (const range of ranges) {
+            // Find first column where this item fits (doesn't overlap)
+            let col = 0;
+            while (col < columnEnds.length && columnEnds[col] > range.startMin) {
+                col++;
+            }
+            columns.set(range.guid, col);
+            columnEnds[col] = range.endMin;
+        }
+
+        // Calculate total columns for each item based on concurrent overlaps
+        const result = new Map();
+        for (const range of ranges) {
+            // Find all items that overlap with this one
+            const overlapping = ranges.filter(r =>
+                r.startMin < range.endMin && r.endMin > range.startMin
+            );
+            const maxCol = Math.max(...overlapping.map(r => columns.get(r.guid))) + 1;
+            result.set(range.guid, {
+                column: columns.get(range.guid),
+                totalColumns: maxCol
+            });
+        }
+
+        return result;
+    }
 
     calculateDropTime(container, clientY) {
         const rect = container.getBoundingClientRect();
