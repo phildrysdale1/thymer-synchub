@@ -595,21 +595,26 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
-/* Calendar Slots */
+/* Calendar Slots - Layered Architecture */
 .flow-calendar-slots {
     flex: 1;
+    position: relative;
+    overflow-y: auto;
+}
+
+/* Layer 1: Static hour grid (background) */
+.flow-calendar-grid {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    overflow-y: auto;
 }
 
 .flow-calendar-slot {
     display: flex;
-    align-items: stretch;
+    align-items: flex-start;
     position: relative;
-    min-height: 34px;
+    height: 36px;
     flex-shrink: 0;
+    border-bottom: 1px solid var(--border-default, rgba(255,255,255,0.05));
 }
 
 .flow-slot-hour {
@@ -621,79 +626,73 @@
     flex-shrink: 0;
 }
 
-.flow-slot-content {
-    flex: 1;
-    border-radius: 6px;
-    min-height: 34px;
-    transition: all 0.15s ease;
+/* Layer 2: Tasks overlay */
+.flow-calendar-tasks {
+    position: absolute;
+    top: 0;
+    left: 42px; /* After hour labels */
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
 }
 
-.flow-slot-content.empty {
-    background: var(--bg-hover, #242424);
-    border: 1px dashed var(--border-default, rgba(255,255,255,0.08));
-}
-
-.flow-slot-content.empty:hover {
-    border-color: var(--text-faint, #555);
-    background: rgba(79, 158, 237, 0.05);
-}
-
-.flow-slot-content.empty.drag-over {
-    border-color: #4f9eed;
-    background: rgba(79, 158, 237, 0.1);
-    box-shadow: inset 0 0 0 1px #4f9eed;
-}
-
-/* Task in Calendar Slot */
-.flow-slot-task {
+/* Task positioned absolutely on calendar */
+.flow-calendar-task {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    min-height: 28px;
     background: linear-gradient(135deg, rgba(79, 158, 237, 0.15), rgba(79, 158, 237, 0.08));
     border: 1px solid rgba(79, 158, 237, 0.25);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 4px 8px;
     cursor: pointer;
     transition: all 0.15s ease;
-    height: 100%;
+    pointer-events: auto;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
-.flow-slot-task:hover {
+.flow-calendar-task:hover {
     border-color: rgba(79, 158, 237, 0.4);
     box-shadow: 0 2px 8px rgba(79, 158, 237, 0.15);
+    z-index: 5;
 }
 
-/* Floating/auto-planned task in calendar */
-.flow-slot-task.floating {
+/* Floating/auto-planned task */
+.flow-calendar-task.floating {
     background: transparent;
     border-style: dashed;
     border-color: rgba(79, 158, 237, 0.35);
 }
 
-.flow-slot-task.floating:hover {
+.flow-calendar-task.floating:hover {
     background: rgba(79, 158, 237, 0.05);
     border-color: rgba(79, 158, 237, 0.5);
 }
 
-.flow-slot-task.floating .flow-slot-task-title {
+.flow-calendar-task.floating .flow-calendar-task-title {
     color: var(--text-muted);
 }
 
 /* Calendar event styling */
-.flow-slot-task.calendar-event {
+.flow-calendar-task.calendar-event {
     background: linear-gradient(135deg, rgba(137, 87, 229, 0.15), rgba(137, 87, 229, 0.08));
     border-color: rgba(137, 87, 229, 0.25);
 }
 
-.flow-slot-task.calendar-event:hover {
+.flow-calendar-task.calendar-event:hover {
     border-color: rgba(137, 87, 229, 0.4);
 }
 
 /* Active task highlight */
-.flow-slot-task.active {
+.flow-calendar-task.active {
     background: linear-gradient(135deg, rgba(63, 185, 80, 0.2), rgba(63, 185, 80, 0.1));
     border-color: rgba(63, 185, 80, 0.4);
     box-shadow: 0 0 12px rgba(63, 185, 80, 0.2);
 }
 
-.flow-slot-task-title {
+.flow-calendar-task-title {
     font-size: 11px;
     font-weight: 500;
     line-height: 1.3;
@@ -702,18 +701,14 @@
     text-overflow: ellipsis;
 }
 
-.flow-slot-task-time {
+.flow-calendar-task-time {
     font-size: 9px;
     color: var(--text-faint, #555);
     margin-top: 2px;
     font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
 
-/* Now Line */
-.flow-calendar-slot.has-now {
-    position: relative;
-}
-
+/* Now Line - positioned absolutely in container */
 .flow-now-line {
     position: absolute;
     left: 42px;
@@ -721,12 +716,11 @@
     height: 2px;
     background: transparent;
     border-top: 2px dashed #d4a72c;
-    z-index: 10;
+    z-index: 20;
     pointer-events: none;
 }
 
-.flow-now-line::before {
-    content: 'now';
+.flow-now-label {
     position: absolute;
     left: -38px;
     top: -8px;

@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.6';
+const VERSION = 'v1.2.7';
 /**
  * Flow - Your Focus Companion
  *
@@ -703,99 +703,122 @@ class Plugin extends AppPlugin {
     }
 
     /**
-     * Render calendar slots with tasks and "now" line
-     * Floating tasks auto-fill into empty slots after "now"
+     * Render calendar with layered architecture:
+     * 1. Grid layer - static hour slots (background)
+     * 2. Tasks layer - absolutely positioned tasks (overlay)
+     * 3. Now line - positioned at current time
      */
     renderCalendarSlots(scheduledTasks, calendarEvents, floatingTasks, currentHour, currentMinute) {
         const range = this.hourRanges[this.hourRangeMode];
-        const slots = [];
+        const totalHours = range.end - range.start + 1;
+        const totalMinutes = totalHours * 60;
 
-        // Build lookup for scheduled/pinned items by hour
-        const itemsByHour = {};
-        for (const task of scheduledTasks) {
-            if (task.start) {
-                const hour = task.start.getHours();
-                if (!itemsByHour[hour]) itemsByHour[hour] = [];
-                itemsByHour[hour].push({ ...task, type: 'task', pinned: true });
-            }
-        }
-        for (const event of calendarEvents) {
-            if (event.start) {
-                const hour = event.start.getHours();
-                if (!itemsByHour[hour]) itemsByHour[hour] = [];
-                itemsByHour[hour].push({ ...event, type: 'calendar' });
-            }
-        }
-
-        // Queue floating tasks to fill empty slots after "now"
-        const floatingQueue = [...floatingTasks];
-        let floatingIndex = 0;
-
+        // 1. Render static hour grid (background)
+        let gridHtml = '';
         for (let h = range.start; h <= range.end; h++) {
             const hourStr = h.toString().padStart(2, '0') + ':00';
-            const isNowHour = h === currentHour;
-            const nowOffset = isNowHour ? (currentMinute / 60) * 100 : 0;
-            const isAfterNow = h > currentHour;
-
-            let contentHtml;
-            const pinnedItems = itemsByHour[h] || [];
-
-            if (pinnedItems.length > 0) {
-                // Show pinned/scheduled item
-                const item = pinnedItems[0];
-                const isCalendar = item.type === 'calendar';
-                const isActive = this.session?.taskGuid === item.guid;
-                const title = this.formatTaskTitle(item);
-                const timeLabel = item.end
-                    ? `${this.formatHourMin(item.start)} - ${this.formatHourMin(item.end)}`
-                    : (item.estimate || '');
-
-                contentHtml = `
-                    <div class="flow-slot-content">
-                        <div class="flow-slot-task ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
-                             data-guid="${item.guid}" data-action="start-task">
-                            <div class="flow-slot-task-title">${title}</div>
-                            ${timeLabel ? `<div class="flow-slot-task-time">${timeLabel}</div>` : ''}
-                        </div>
-                    </div>
-                `;
-            } else if (isAfterNow && floatingIndex < floatingQueue.length) {
-                // Fill empty slot after "now" with floating task
-                const task = floatingQueue[floatingIndex++];
-                const isActive = this.session?.taskGuid === task.guid;
-                const title = this.formatTaskTitle(task);
-                const estimate = task.estimate || '30m';
-
-                contentHtml = `
-                    <div class="flow-slot-content">
-                        <div class="flow-slot-task floating ${isActive ? 'active' : ''}"
-                             data-guid="${task.guid}" data-action="start-task">
-                            <div class="flow-slot-task-title">${title}</div>
-                            <div class="flow-slot-task-time">~${estimate}</div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                contentHtml = '<div class="flow-slot-content empty"></div>';
-            }
-
-            // "Now" line
-            const nowLineHtml = isNowHour ? `
-                <div class="flow-now-line" style="top: ${nowOffset}%">
-                    <div class="flow-now-dot"></div>
-                </div>
-            ` : '';
-
-            slots.push(`
-                <div class="flow-calendar-slot ${isNowHour ? 'has-now' : ''}">
+            gridHtml += `
+                <div class="flow-calendar-slot">
                     <div class="flow-slot-hour">${hourStr}</div>
-                    ${contentHtml}
-                    ${nowLineHtml}
                 </div>
-            `);
+            `;
         }
 
-        return slots.join('');
+        // 2. Calculate "now" line position
+        const nowMinutes = (currentHour - range.start) * 60 + currentMinute;
+        const nowPercent = Math.max(0, Math.min(100, (nowMinutes / totalMinutes) * 100));
+        const showNowLine = currentHour >= range.start && currentHour <= range.end;
+
+        const nowLineHtml = showNowLine ? `
+            <div class="flow-now-line" style="top: ${nowPercent}%">
+                <div class="flow-now-label">NOW</div>
+                <div class="flow-now-dot"></div>
+            </div>
+        ` : '';
+
+        // 3. Render tasks layer (overlay)
+        let tasksHtml = '';
+
+        // Scheduled/pinned tasks
+        for (const task of scheduledTasks) {
+            if (task.start) {
+                const startMin = (task.start.getHours() - range.start) * 60 + task.start.getMinutes();
+                const topPct = (startMin / totalMinutes) * 100;
+                const durationMin = this.estimateToMinutes(task.estimate) || 30;
+                const heightPct = (durationMin / totalMinutes) * 100;
+
+                tasksHtml += this.renderCalendarTask(task, topPct, heightPct, false, false);
+            }
+        }
+
+        // Calendar events
+        for (const event of calendarEvents) {
+            if (event.start) {
+                const startMin = (event.start.getHours() - range.start) * 60 + event.start.getMinutes();
+                const topPct = (startMin / totalMinutes) * 100;
+                let durationMin = 60; // default 1hr
+                if (event.end) {
+                    durationMin = (event.end - event.start) / 60000;
+                }
+                const heightPct = (durationMin / totalMinutes) * 100;
+
+                tasksHtml += this.renderCalendarTask(event, topPct, heightPct, false, true);
+            }
+        }
+
+        // Floating tasks - stack sequentially after "now"
+        let floatStartMin = nowMinutes;
+        for (const task of floatingTasks) {
+            if (floatStartMin >= totalMinutes) break; // past end of visible range
+
+            const topPct = (floatStartMin / totalMinutes) * 100;
+            const durationMin = this.estimateToMinutes(task.estimate) || 30;
+            const heightPct = (durationMin / totalMinutes) * 100;
+
+            tasksHtml += this.renderCalendarTask(task, topPct, heightPct, true, false);
+            floatStartMin += durationMin;
+        }
+
+        return `
+            <div class="flow-calendar-grid">
+                ${gridHtml}
+            </div>
+            ${nowLineHtml}
+            <div class="flow-calendar-tasks">
+                ${tasksHtml}
+            </div>
+        `;
+    }
+
+    /**
+     * Render a single task positioned absolutely on the calendar
+     */
+    renderCalendarTask(item, topPct, heightPct, isFloating, isCalendar) {
+        const isActive = this.session?.taskGuid === item.guid;
+        const title = this.formatTaskTitle(item);
+        const timeLabel = item.end
+            ? `${this.formatHourMin(item.start)} - ${this.formatHourMin(item.end)}`
+            : (item.estimate ? `~${item.estimate}` : '');
+
+        return `
+            <div class="flow-calendar-task ${isFloating ? 'floating' : ''} ${isCalendar ? 'calendar-event' : ''} ${isActive ? 'active' : ''}"
+                 style="top: ${topPct}%; height: ${heightPct}%;"
+                 data-guid="${item.guid}" data-action="start-task">
+                <div class="flow-calendar-task-title">${title}</div>
+                ${timeLabel ? `<div class="flow-calendar-task-time">${timeLabel}</div>` : ''}
+            </div>
+        `;
+    }
+
+    /**
+     * Convert estimate string to minutes
+     */
+    estimateToMinutes(estimate) {
+        if (!estimate) return 30;
+        const match = estimate.match(/(\d+)([hm])/);
+        if (!match) return 30;
+        const num = parseInt(match[1], 10);
+        return match[2] === 'h' ? num * 60 : num;
     }
 
     /**
