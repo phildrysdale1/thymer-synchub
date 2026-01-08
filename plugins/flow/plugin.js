@@ -1,6 +1,8 @@
-const VERSION = 'v1.1.7';
+const VERSION = 'v1.2.4';
 /**
  * Flow - Your Focus Companion
+ *
+ * CSS: Load flow.css in Thymer's Custom CSS settings
  *
  * An AppPlugin that provides focus session tracking with three visibility modes:
  * 1. Status Bar - Minimal: [● Task 23:45]
@@ -13,762 +15,6 @@ const VERSION = 'v1.1.7';
  * - window.musicHub (future) - focus music integration
  */
 
-const FLOW_CSS = `
-    /* ========================================
-       FLOW STATUS BAR
-       ======================================== */
-    .flow-status-bar {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-    }
-
-    .flow-status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--text-muted);
-        transition: all 0.3s ease;
-    }
-
-    .flow-status-dot.active {
-        background: #3fb950;
-        animation: flowPulse 2s ease-in-out infinite;
-    }
-
-    .flow-status-dot.paused {
-        background: #d29922;
-        animation: none;
-    }
-
-    @keyframes flowPulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.6; transform: scale(1.15); }
-    }
-
-    .flow-status-task {
-        color: var(--text-default);
-        font-weight: 500;
-        max-width: 180px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 12px;
-    }
-
-    .flow-status-time {
-        font-family: 'JetBrains Mono', 'SF Mono', monospace;
-        color: #3fb950;
-        font-weight: 600;
-        font-size: 11px;
-    }
-
-    .flow-status-time.paused {
-        color: #d29922;
-    }
-
-    /* ========================================
-       FLOW COMPACT OVERLAY
-       ======================================== */
-    .flow-compact {
-        position: fixed;
-        bottom: 30px;
-        right: 20px;
-        width: 320px;
-        background: var(--bg-default, #1a1a1a);
-        border: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        border-radius: 16px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        z-index: 9999;
-        font-family: var(--font-family);
-        animation: flowSlideUp 0.3s ease;
-    }
-
-    @keyframes flowSlideUp {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .flow-compact-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border-default, rgba(255,255,255,0.08));
-    }
-
-    .flow-compact-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .flow-compact-status-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: #3fb950;
-        animation: flowPulse 2s ease-in-out infinite;
-    }
-
-    .flow-compact-status-dot.paused {
-        background: #d29922;
-        animation: none;
-    }
-
-    .flow-compact-status-dot.idle {
-        background: var(--text-muted);
-        animation: none;
-    }
-
-    .flow-compact-status-text {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #3fb950;
-        font-weight: 600;
-    }
-
-    .flow-compact-status-text.paused { color: #d29922; }
-    .flow-compact-status-text.idle { color: var(--text-muted); }
-
-    .flow-compact-controls {
-        display: flex;
-        gap: 4px;
-    }
-
-    .flow-compact-btn {
-        width: 28px;
-        height: 28px;
-        border-radius: 6px;
-        border: none;
-        background: var(--bg-hover, #242424);
-        color: var(--text-muted);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.15s ease;
-    }
-
-    .flow-compact-btn:hover {
-        background: var(--bg-active, #2a2a2a);
-        color: var(--text-default);
-    }
-
-    .flow-compact-body {
-        padding: 16px;
-    }
-
-    .flow-compact-task {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text-default);
-        margin-bottom: 4px;
-    }
-
-    .flow-compact-task-link {
-        color: #4f9eed;
-        text-decoration: none;
-    }
-
-    .flow-compact-task-link:hover {
-        text-decoration: underline;
-    }
-
-    .flow-compact-source {
-        font-size: 12px;
-        color: var(--text-muted);
-        margin-bottom: 14px;
-    }
-
-    .flow-compact-timer {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 14px;
-    }
-
-    .flow-compact-timer-ring {
-        width: 48px;
-        height: 48px;
-        position: relative;
-        flex-shrink: 0;
-    }
-
-    .flow-compact-timer-ring svg {
-        transform: rotate(-90deg);
-        width: 48px;
-        height: 48px;
-    }
-
-    .flow-compact-timer-ring circle {
-        fill: none;
-        stroke-width: 4;
-    }
-
-    .flow-compact-timer-ring .ring-bg {
-        stroke: var(--border-default, rgba(255,255,255,0.08));
-    }
-
-    .flow-compact-timer-ring .ring-progress {
-        stroke: #3fb950;
-        stroke-linecap: round;
-        stroke-dasharray: 126;
-        stroke-dashoffset: 126;
-        transition: stroke-dashoffset 1s ease;
-    }
-
-    .flow-compact-timer-value {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-family: 'JetBrains Mono', 'SF Mono', monospace;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-default);
-    }
-
-    .flow-compact-timer-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .flow-compact-timer-elapsed {
-        font-family: 'JetBrains Mono', 'SF Mono', monospace;
-        font-size: 28px;
-        font-weight: 700;
-        color: var(--text-default);
-        line-height: 1;
-    }
-
-    .flow-compact-timer-label {
-        font-size: 11px;
-        color: var(--text-muted);
-        margin-top: 2px;
-    }
-
-    .flow-compact-progress {
-        height: 4px;
-        background: var(--border-default, rgba(255,255,255,0.08));
-        border-radius: 2px;
-        margin-bottom: 16px;
-        overflow: hidden;
-    }
-
-    .flow-compact-progress-bar {
-        height: 100%;
-        width: 0%;
-        background: linear-gradient(90deg, #3fb950, #58a6ff);
-        border-radius: 2px;
-        transition: width 0.3s ease;
-    }
-
-    .flow-compact-next {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px 12px;
-        background: var(--bg-hover, #242424);
-        border-radius: 8px;
-    }
-
-    .flow-compact-next-info {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .flow-compact-next-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-faint, #555);
-    }
-
-    .flow-compact-next-task {
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-
-    .flow-compact-next-time {
-        font-size: 11px;
-        color: var(--text-faint, #555);
-        font-family: 'JetBrains Mono', 'SF Mono', monospace;
-    }
-
-    .flow-compact-footer {
-        display: flex;
-        border-top: 1px solid var(--border-default, rgba(255,255,255,0.08));
-    }
-
-    .flow-compact-action {
-        flex: 1;
-        padding: 12px;
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        font-size: 12px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        transition: all 0.15s ease;
-    }
-
-    .flow-compact-action:hover {
-        background: var(--bg-hover, #242424);
-        color: var(--text-default);
-    }
-
-    .flow-compact-action:first-child {
-        border-right: 1px solid var(--border-default, rgba(255,255,255,0.08));
-    }
-
-    .flow-compact-action.primary {
-        color: #4f9eed;
-    }
-
-    .flow-compact-action.start {
-        color: #3fb950;
-    }
-
-    /* ========================================
-       FLOW FULL OVERLAY
-       ======================================== */
-    .flow-full {
-        position: fixed;
-        bottom: 30px;
-        right: 20px;
-        width: 420px;
-        background: var(--bg-default, #1a1a1a);
-        border: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        border-radius: 16px;
-        box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        z-index: 9999;
-        font-family: var(--font-family);
-        animation: flowSlideUp 0.3s ease;
-    }
-
-    .flow-full-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--border-default, rgba(255,255,255,0.08));
-    }
-
-    .flow-full-title {
-        font-size: 16px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        color: var(--text-default);
-    }
-
-    .flow-full-title-icon {
-        color: #4f9eed;
-    }
-
-    .flow-full-body {
-        display: flex;
-        overflow: hidden;
-    }
-
-    .flow-full-main {
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        overflow-y: auto;
-    }
-
-    /* Big Timer */
-    .flow-big-timer {
-        width: 160px;
-        height: 160px;
-        position: relative;
-        margin-bottom: 24px;
-    }
-
-    .flow-big-timer svg {
-        transform: rotate(-90deg);
-        filter: drop-shadow(0 0 20px rgba(63, 185, 80, 0.3));
-        animation: flowTimerPulse 3s ease-in-out infinite;
-    }
-
-    @keyframes flowTimerPulse {
-        0%, 100% { filter: drop-shadow(0 0 20px rgba(63, 185, 80, 0.3)); }
-        50% { filter: drop-shadow(0 0 30px rgba(63, 185, 80, 0.5)); }
-    }
-
-    .flow-big-timer circle {
-        fill: none;
-    }
-
-    .flow-big-timer .timer-bg {
-        stroke: var(--border-default, rgba(255,255,255,0.08));
-        stroke-width: 8;
-    }
-
-    .flow-big-timer .timer-progress {
-        stroke: url(#flowTimerGradient);
-        stroke-width: 8;
-        stroke-linecap: round;
-        stroke-dasharray: 440;
-        stroke-dashoffset: 440;
-        transition: stroke-dashoffset 1s ease;
-    }
-
-    .flow-big-timer .timer-glow {
-        stroke: #3fb950;
-        stroke-width: 12;
-        stroke-linecap: round;
-        stroke-dasharray: 440;
-        stroke-dashoffset: 440;
-        opacity: 0.2;
-        filter: blur(8px);
-    }
-
-    .flow-big-timer-inner {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        text-align: center;
-    }
-
-    .flow-big-timer-value {
-        font-family: 'JetBrains Mono', 'SF Mono', monospace;
-        font-size: 32px;
-        font-weight: 700;
-        color: var(--text-default);
-        line-height: 1;
-    }
-
-    .flow-big-timer-label {
-        font-size: 11px;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-top: 4px;
-    }
-
-    .flow-current-task {
-        text-align: center;
-        margin-bottom: 24px;
-    }
-
-    .flow-current-task-label {
-        font-size: 11px;
-        color: var(--text-faint, #555);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 8px;
-    }
-
-    .flow-current-task-name {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--text-default);
-        margin-bottom: 4px;
-    }
-
-    .flow-current-task-name a {
-        color: #4f9eed;
-        text-decoration: none;
-    }
-
-    .flow-current-task-name a:hover {
-        text-decoration: underline;
-    }
-
-    .flow-current-task-source {
-        font-size: 12px;
-        color: var(--text-muted);
-    }
-
-    .flow-timer-controls {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 24px;
-    }
-
-    .flow-timer-btn {
-        padding: 12px 24px;
-        border-radius: 10px;
-        border: none;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s ease;
-    }
-
-    .flow-timer-btn.pause {
-        background: #9e6a03;
-        color: white;
-    }
-
-    .flow-timer-btn.pause:hover {
-        background: #b87a03;
-        transform: translateY(-1px);
-    }
-
-    .flow-timer-btn.resume {
-        background: #238636;
-        color: white;
-    }
-
-    .flow-timer-btn.resume:hover {
-        background: #2ea043;
-        transform: translateY(-1px);
-    }
-
-    .flow-timer-btn.end {
-        background: var(--bg-hover, #242424);
-        border: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        color: var(--text-default);
-    }
-
-    .flow-timer-btn.end:hover {
-        background: var(--bg-active, #2a2a2a);
-        border-color: var(--border-strong, rgba(255,255,255,0.15));
-    }
-
-    .flow-timer-btn.start {
-        background: #238636;
-        color: white;
-    }
-
-    .flow-timer-btn.start:hover {
-        background: #2ea043;
-        transform: translateY(-1px);
-    }
-
-    /* Timeline Sidebar */
-    .flow-timeline {
-        width: 140px;
-        border-left: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        padding: 16px 12px;
-        overflow-y: auto;
-    }
-
-    .flow-timeline-header {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-faint, #555);
-        margin-bottom: 12px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .flow-timeline-hours {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .flow-timeline-slot {
-        display: flex;
-        align-items: stretch;
-        min-height: 36px;
-    }
-
-    .flow-timeline-hour {
-        width: 36px;
-        font-size: 10px;
-        color: var(--text-faint, #555);
-        font-family: 'JetBrains Mono', 'SF Mono', monospace;
-        padding-top: 4px;
-    }
-
-    .flow-timeline-block {
-        flex: 1;
-        border-radius: 4px;
-        padding: 4px 6px;
-        font-size: 10px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        overflow: hidden;
-    }
-
-    .flow-timeline-block:hover {
-        transform: translateX(2px);
-    }
-
-    .flow-timeline-block.empty {
-        background: var(--bg-hover, #242424);
-        border: 1px dashed var(--border-default, rgba(255,255,255,0.08));
-    }
-
-    .flow-timeline-block.task {
-        background: linear-gradient(135deg, rgba(79, 158, 237, 0.2), rgba(79, 158, 237, 0.1));
-        border: 1px solid rgba(79, 158, 237, 0.3);
-        color: #4f9eed;
-    }
-
-    .flow-timeline-block.task.active {
-        background: linear-gradient(135deg, rgba(63, 185, 80, 0.25), rgba(63, 185, 80, 0.15));
-        border-color: rgba(63, 185, 80, 0.4);
-        color: #3fb950;
-        box-shadow: 0 0 12px rgba(63, 185, 80, 0.2);
-    }
-
-    .flow-timeline-block.calendar {
-        background: linear-gradient(135deg, rgba(137, 87, 229, 0.2), rgba(137, 87, 229, 0.1));
-        border: 1px solid rgba(137, 87, 229, 0.3);
-        color: #a371f7;
-    }
-
-    .flow-timeline-block-name {
-        font-weight: 500;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    /* Unscheduled Footer */
-    .flow-full-footer {
-        border-top: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        padding: 16px 20px;
-    }
-
-    .flow-unscheduled-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 12px;
-    }
-
-    .flow-unscheduled-title {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: var(--text-faint, #555);
-    }
-
-    .flow-unscheduled-tasks {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .flow-unscheduled-task {
-        padding: 8px 12px;
-        background: var(--bg-hover, #242424);
-        border: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        border-radius: 8px;
-        font-size: 12px;
-        color: var(--text-muted);
-        cursor: pointer;
-        transition: all 0.15s ease;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .flow-unscheduled-task:hover {
-        background: var(--bg-active, #2a2a2a);
-        border-color: #4f9eed;
-        color: var(--text-default);
-    }
-
-    .flow-unscheduled-task .ti {
-        color: #4f9eed;
-    }
-
-    /* Linked issue teal styling (matches PlannerHub) */
-    .flow-link {
-        color: color(display-p3 0.396 0.784 0.733);
-    }
-
-    /* Idle state */
-    .flow-idle-message {
-        text-align: center;
-        padding: 40px 20px;
-        color: var(--text-muted);
-    }
-
-    .flow-idle-icon {
-        font-size: 48px;
-        margin-bottom: 16px;
-        opacity: 0.3;
-    }
-
-    .flow-idle-text {
-        font-size: 14px;
-        margin-bottom: 20px;
-    }
-
-    .flow-start-btn {
-        padding: 12px 32px;
-        background: #238636;
-        border: none;
-        border-radius: 10px;
-        color: white;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s ease;
-    }
-
-    .flow-start-btn:hover {
-        background: #2ea043;
-        transform: translateY(-1px);
-    }
-
-    /* Task picker */
-    .flow-task-picker {
-        width: 100%;
-        max-height: 300px;
-        overflow-y: auto;
-    }
-
-    .flow-task-picker-item {
-        padding: 12px;
-        border: 1px solid var(--border-default, rgba(255,255,255,0.08));
-        border-radius: 8px;
-        margin-bottom: 8px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
-
-    .flow-task-picker-item:hover {
-        background: var(--bg-hover, #242424);
-        border-color: #4f9eed;
-    }
-
-    .flow-task-picker-item-title {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text-default);
-        margin-bottom: 4px;
-    }
-
-    .flow-task-picker-item-meta {
-        font-size: 11px;
-        color: var(--text-muted);
-    }
-`;
-
 class Plugin extends AppPlugin {
     async onLoad() {
         // Initialize state
@@ -777,6 +23,14 @@ class Plugin extends AppPlugin {
         this.timerInterval = null;
         this.overlay = null;
         this.statusBarItem = null;
+
+        // Planning view state
+        this.hourRangeMode = 'normal'; // 'normal' (9-17), 'extended' (7-21), 'full' (0-23)
+        this.hourRanges = {
+            normal: { start: 9, end: 17 },
+            extended: { start: 7, end: 21 },
+            full: { start: 0, end: 23 }
+        };
 
         // Wait for plannerHub to be available
         if (window.plannerHub) {
@@ -803,9 +57,6 @@ class Plugin extends AppPlugin {
         if (this.initialized) return;
         this.initialized = true;
 
-        // Inject CSS
-        this.injectCSS();
-
         // Setup status bar
         this.setupStatusBar();
 
@@ -816,13 +67,6 @@ class Plugin extends AppPlugin {
         this.checkDependencies();
 
         console.log(`[Flow] Loaded ${VERSION}`);
-    }
-
-    injectCSS() {
-        const style = document.createElement('style');
-        style.id = 'flow-styles';
-        style.textContent = FLOW_CSS;
-        document.head.appendChild(style);
     }
 
     checkDependencies() {
@@ -1238,40 +482,53 @@ class Plugin extends AppPlugin {
     }
 
     async renderFullOverlay() {
-        const elapsed = this.getElapsedTime();
-        const timeStr = this.formatTime(elapsed);
-        const progress = Math.min((elapsed / (60 * 60 * 1000)) * 100, 100);
-        const circumference = 440; // 2 * PI * 70
-        const offset = circumference - (progress / 100 * circumference);
+        // Auto-select hour range based on current time
+        this.autoSelectHourRange();
 
-        // Get timeline
-        let timeline = [];
-        let unscheduled = [];
+        // Get data from PlannerHub
+        let backlogTasks = [];
+        let scheduledItems = [];
+        let calendarEvents = [];
+
         if (window.plannerHub) {
-            timeline = await window.plannerHub.getTimelineView({
-                workdayStart: '09:00',
-                workdayEnd: '18:00',
+            // Get unscheduled tasks for backlog
+            const unscheduled = await window.plannerHub.getUnscheduledTasks();
+            backlogTasks = unscheduled.filter(t => t.status !== 'done');
+
+            // Get timeline view for scheduled items
+            const timeline = await window.plannerHub.getTimelineView({
+                workdayStart: '07:00',
+                workdayEnd: '21:00',
                 includeCalendar: !!window.calendarHub
             });
-            unscheduled = await window.plannerHub.getUnscheduledTasks();
-            unscheduled = unscheduled.filter(t => t.status !== 'done').slice(0, 5);
+
+            // Separate calendar events and tasks
+            scheduledItems = timeline.filter(t => t.type !== 'calendar');
+            calendarEvents = timeline.filter(t => t.type === 'calendar');
         }
 
-        if (!this.session) {
-            await this.renderIdleFull(timeline, unscheduled);
-            return;
-        }
+        // Get current time info for "now" line
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+
+        // Session info
+        const elapsed = this.getElapsedTime();
+        const timeStr = this.formatTime(elapsed);
+        const isIdle = !this.session;
+        const isPaused = this.session?.isPaused;
 
         this.overlay.innerHTML = `
-            <div class="flow-full">
-                <div class="flow-full-header">
-                    <div class="flow-full-title">
-                        <span class="ti ti-flame flow-full-title-icon"></span>
+            <div class="flow-planner">
+                <!-- Header -->
+                <div class="flow-planner-header">
+                    <div class="flow-planner-title">
+                        <span class="ti ti-flame flow-planner-title-icon"></span>
                         Flow
                     </div>
                     <div class="flow-compact-controls">
-                        <button class="flow-compact-btn" data-action="compact" title="Compact">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
+                        <button class="flow-compact-btn" data-action="compact" title="Compact view">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
                         </button>
                         <button class="flow-compact-btn" data-action="close" title="Close">
                             <span class="ti ti-x"></span>
@@ -1279,184 +536,217 @@ class Plugin extends AppPlugin {
                     </div>
                 </div>
 
-                <div class="flow-full-body">
-                    <div class="flow-full-main">
-                        <div class="flow-big-timer">
-                            <svg width="160" height="160" viewBox="0 0 160 160">
-                                <defs>
-                                    <linearGradient id="flowTimerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                        <stop offset="0%" style="stop-color:#3fb950"/>
-                                        <stop offset="100%" style="stop-color:#58a6ff"/>
-                                    </linearGradient>
-                                </defs>
-                                <circle class="timer-bg" cx="80" cy="80" r="70"/>
-                                <circle class="timer-glow" cx="80" cy="80" r="70" style="stroke-dashoffset: ${offset}"/>
-                                <circle class="timer-progress" cx="80" cy="80" r="70" style="stroke-dashoffset: ${offset}"/>
-                            </svg>
-                            <div class="flow-big-timer-inner">
-                                <div class="flow-big-timer-value">${timeStr}</div>
-                                <div class="flow-big-timer-label">${this.session.isPaused ? 'paused' : 'elapsed'}</div>
-                            </div>
+                <!-- Main Content -->
+                <div class="flow-planner-main">
+                    <!-- Backlog Panel -->
+                    <div class="flow-backlog">
+                        <div class="flow-section-header">
+                            <span class="flow-section-title">
+                                <span class="ti ti-stack-2"></span>
+                                Now
+                            </span>
+                            <span class="flow-section-count">${backlogTasks.length}</span>
+                            ${backlogTasks.length > 0 ? `
+                                <div class="flow-section-actions">
+                                    <button class="flow-add-all-btn" data-action="add-all" title="Float all tasks into calendar">
+                                        <span class="ti ti-playlist-add"></span>
+                                        Add all
+                                    </button>
+                                </div>
+                            ` : ''}
                         </div>
-
-                        <div class="flow-current-task">
-                            <div class="flow-current-task-label">Currently working on</div>
-                            <div class="flow-current-task-name">${this.formatTaskTitle(this.session.task)}</div>
-                            <div class="flow-current-task-source">Focus session</div>
+                        <div class="flow-backlog-list">
+                            ${backlogTasks.length > 0 ? backlogTasks.map(t => this.renderBacklogTask(t)).join('') : `
+                                <div class="flow-backlog-empty">
+                                    <div class="flow-backlog-empty-icon"><span class="ti ti-checkbox"></span></div>
+                                    <div class="flow-backlog-empty-text">All tasks scheduled!</div>
+                                </div>
+                            `}
                         </div>
+                    </div>
 
-                        <div class="flow-timer-controls">
-                            ${this.session.isPaused ? `
-                                <button class="flow-timer-btn resume" data-action="resume">
+                    <!-- Calendar Panel -->
+                    <div class="flow-calendar">
+                        <div class="flow-calendar-header">
+                            <span class="flow-calendar-date">
+                                <span class="ti ti-calendar"></span>
+                                Today
+                            </span>
+                        </div>
+                        <div class="flow-calendar-pill">
+                            <button class="flow-calendar-pill-btn ${this.hourRangeMode === 'normal' ? 'active' : ''}" data-action="hour-range" data-mode="normal">9-17</button>
+                            <button class="flow-calendar-pill-btn ${this.hourRangeMode === 'extended' ? 'active' : ''}" data-action="hour-range" data-mode="extended">7-21</button>
+                            <button class="flow-calendar-pill-btn ${this.hourRangeMode === 'full' ? 'active' : ''}" data-action="hour-range" data-mode="full">24h</button>
+                        </div>
+                        <div class="flow-calendar-slots">
+                            ${this.renderCalendarSlots(scheduledItems, calendarEvents, currentHour, currentMinute)}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Session Bar -->
+                <div class="flow-active-bar ${isIdle ? 'idle' : ''}">
+                    <div class="flow-active-indicator"></div>
+                    <div class="flow-active-info">
+                        <div class="flow-active-label">${isIdle ? 'Ready to start' : (isPaused ? 'Paused' : 'Working on')}</div>
+                        <div class="flow-active-task">
+                            ${isIdle ? 'Pick a task from the backlog' : this.formatTaskTitle(this.session.task)}
+                        </div>
+                    </div>
+                    <div class="flow-active-timer">${isIdle ? '--:--' : timeStr}</div>
+                    <div class="flow-active-controls">
+                        ${isIdle ? `
+                            ${backlogTasks.length > 0 ? `
+                                <button class="flow-active-btn start" data-action="start-next">
+                                    <span class="ti ti-player-play"></span>
+                                    Start
+                                </button>
+                            ` : ''}
+                        ` : `
+                            ${isPaused ? `
+                                <button class="flow-active-btn" data-action="resume">
                                     <span class="ti ti-player-play"></span>
                                     Resume
                                 </button>
                             ` : `
-                                <button class="flow-timer-btn pause" data-action="pause">
+                                <button class="flow-active-btn" data-action="pause">
                                     <span class="ti ti-player-pause"></span>
                                     Pause
                                 </button>
                             `}
-                            <button class="flow-timer-btn end" data-action="complete">
-                                <span class="ti ti-player-stop"></span>
-                                End Session
+                            <button class="flow-active-btn complete" data-action="complete">
+                                <span class="ti ti-check"></span>
+                                Done
                             </button>
-                        </div>
-                    </div>
-
-                    <div class="flow-timeline">
-                        <div class="flow-timeline-header">
-                            <span class="ti ti-calendar"></span>
-                            Today
-                        </div>
-                        <div class="flow-timeline-hours">
-                            ${this.renderTimelineSlots(timeline)}
-                        </div>
+                        `}
                     </div>
                 </div>
-
-                ${unscheduled.length > 0 ? `
-                    <div class="flow-full-footer">
-                        <div class="flow-unscheduled-header">
-                            <span class="flow-unscheduled-title">Unscheduled</span>
-                        </div>
-                        <div class="flow-unscheduled-tasks">
-                            ${unscheduled.map(t => `
-                                <div class="flow-unscheduled-task" data-action="start-task" data-guid="${t.guid}">
-                                    <span class="ti ti-checkbox"></span>
-                                    ${this.formatTaskTitle(t, 20)}
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                ` : ''}
             </div>
         `;
     }
 
-    async renderIdleFull(timeline, unscheduled) {
-        let tasks = [];
-        if (window.plannerHub) {
-            tasks = await window.plannerHub.getPlannerHubTasks();
-            tasks = tasks.filter(t => t.status !== 'done').slice(0, 5);
+    /**
+     * Auto-select hour range mode based on current time
+     */
+    autoSelectHourRange() {
+        const currentHour = new Date().getHours();
+
+        // If current hour doesn't fit in normal (9-17), expand
+        if (currentHour < 9 || currentHour > 17) {
+            if (currentHour >= 7 && currentHour <= 21) {
+                this.hourRangeMode = 'extended';
+            } else {
+                this.hourRangeMode = 'full';
+            }
+        }
+        // Otherwise keep current mode (don't auto-shrink)
+    }
+
+    /**
+     * Render a backlog task card
+     */
+    renderBacklogTask(task) {
+        const estimate = task.estimate || '30m'; // Default estimate
+        const isFloating = !task.scheduledStart; // No explicit schedule = floating
+        const statusClass = task.status === 'in-progress' ? 'in-progress' : (task.status === 'next' ? 'next' : 'todo');
+
+        return `
+            <div class="flow-task-card ${isFloating ? 'floating' : ''}" draggable="true" data-guid="${task.guid}">
+                <button class="flow-task-estimate" data-action="estimate" data-guid="${task.guid}" title="Click to change estimate">${estimate}</button>
+                <div class="flow-task-content">
+                    <div class="flow-task-title">${this.formatTaskTitle(task)}</div>
+                    <div class="flow-task-meta">
+                        <span class="flow-task-status">
+                            <span class="flow-task-status-dot ${statusClass}"></span>
+                            ${task.status || 'todo'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Render calendar slots with tasks and "now" line
+     */
+    renderCalendarSlots(scheduledTasks, calendarEvents, currentHour, currentMinute) {
+        const range = this.hourRanges[this.hourRangeMode];
+        const slots = [];
+
+        // Build lookup for scheduled items by hour
+        const itemsByHour = {};
+        for (const task of scheduledTasks) {
+            if (task.start) {
+                const hour = task.start.getHours();
+                if (!itemsByHour[hour]) itemsByHour[hour] = [];
+                itemsByHour[hour].push({ ...task, type: 'task' });
+            }
+        }
+        for (const event of calendarEvents) {
+            if (event.start) {
+                const hour = event.start.getHours();
+                if (!itemsByHour[hour]) itemsByHour[hour] = [];
+                itemsByHour[hour].push({ ...event, type: 'calendar' });
+            }
         }
 
-        this.overlay.innerHTML = `
-            <div class="flow-full">
-                <div class="flow-full-header">
-                    <div class="flow-full-title">
-                        <span class="ti ti-flame flow-full-title-icon"></span>
-                        Flow
-                    </div>
-                    <div class="flow-compact-controls">
-                        <button class="flow-compact-btn" data-action="compact" title="Compact">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 10 7-7"/><path d="M20 10h-6V4"/><path d="m3 21 7-7"/><path d="M4 14h6v6"/></svg>
-                        </button>
-                        <button class="flow-compact-btn" data-action="close" title="Close">
-                            <span class="ti ti-x"></span>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="flow-full-body">
-                    <div class="flow-full-main">
-                        <div class="flow-idle-message">
-                            <div class="flow-idle-icon"><span class="ti ti-flame"></span></div>
-                            <div class="flow-idle-text">Ready to focus?</div>
-                            ${tasks.length > 0 ? `
-                                <button class="flow-start-btn" data-action="start-next">
-                                    <span class="ti ti-player-play"></span>
-                                    Start Next Task
-                                </button>
-                            ` : `
-                                <div style="font-size: 12px; color: var(--text-muted);">
-                                    Add tasks in PlannerHub to get started
-                                </div>
-                            `}
-                        </div>
-
-                        ${tasks.length > 0 ? `
-                            <div class="flow-task-picker" style="margin-top: 24px;">
-                                ${tasks.map(t => `
-                                    <div class="flow-task-picker-item" data-action="start-task" data-guid="${t.guid}">
-                                        <div class="flow-task-picker-item-title">${this.formatTaskTitle(t)}</div>
-                                        <div class="flow-task-picker-item-meta">${t.status}</div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
-                    </div>
-
-                    <div class="flow-timeline">
-                        <div class="flow-timeline-header">
-                            <span class="ti ti-calendar"></span>
-                            Today
-                        </div>
-                        <div class="flow-timeline-hours">
-                            ${this.renderTimelineSlots(timeline)}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    renderTimelineSlots(timeline) {
-        const hours = [];
-        for (let h = 9; h <= 17; h++) {
+        for (let h = range.start; h <= range.end; h++) {
             const hourStr = h.toString().padStart(2, '0') + ':00';
+            const items = itemsByHour[h] || [];
+            const isNowHour = h === currentHour;
+            const nowOffset = isNowHour ? (currentMinute / 60) * 100 : 0;
 
-            // Find items at this hour
-            const items = timeline.filter(item => {
-                const startHour = item.start.getHours();
-                return startHour === h;
-            });
-
-            let blockHtml = '<div class="flow-timeline-block empty"></div>';
-
+            let contentHtml;
             if (items.length > 0) {
-                const item = items[0];
+                const item = items[0]; // Show first item in slot
+                const isCalendar = item.type === 'calendar';
+                const isFloating = item.type === 'task' && !item.pinned;
                 const isActive = this.session?.taskGuid === item.guid;
-                const typeClass = item.type === 'calendar' ? 'calendar' : 'task';
-                const activeClass = isActive ? 'active' : '';
-                const name = item.text || item.linkedIssueTitle || item.title || '';
+                const title = this.formatTaskTitle(item);
+                const timeLabel = item.end
+                    ? `${this.formatHourMin(item.start)} - ${this.formatHourMin(item.end)}`
+                    : (item.estimate || '');
 
-                blockHtml = `
-                    <div class="flow-timeline-block ${typeClass} ${activeClass}" data-guid="${item.guid}">
-                        <div class="flow-timeline-block-name">${this.escapeHtml(this.truncate(name, 12))}</div>
+                contentHtml = `
+                    <div class="flow-slot-content">
+                        <div class="flow-slot-task ${isCalendar ? 'calendar-event' : ''} ${isFloating ? 'floating' : ''} ${isActive ? 'active' : ''}"
+                             data-guid="${item.guid}" data-action="start-task">
+                            <div class="flow-slot-task-title">${title}</div>
+                            ${timeLabel ? `<div class="flow-slot-task-time">${timeLabel}</div>` : ''}
+                        </div>
                     </div>
                 `;
+            } else {
+                contentHtml = '<div class="flow-slot-content empty"></div>';
             }
 
-            hours.push(`
-                <div class="flow-timeline-slot">
-                    <div class="flow-timeline-hour">${hourStr}</div>
-                    ${blockHtml}
+            // "Now" line
+            const nowLineHtml = isNowHour ? `
+                <div class="flow-now-line" style="top: ${nowOffset}%">
+                    <div class="flow-now-dot"></div>
+                </div>
+            ` : '';
+
+            slots.push(`
+                <div class="flow-calendar-slot ${isNowHour ? 'has-now' : ''}">
+                    <div class="flow-slot-hour">${hourStr}</div>
+                    ${contentHtml}
+                    ${nowLineHtml}
                 </div>
             `);
         }
 
-        return hours.join('');
+        return slots.join('');
+    }
+
+    /**
+     * Format Date to HH:MM
+     */
+    formatHourMin(date) {
+        if (!date) return '';
+        const h = date.getHours().toString().padStart(2, '0');
+        const m = date.getMinutes().toString().padStart(2, '0');
+        return `${h}:${m}`;
     }
 
     updateOverlayTimer() {
@@ -1483,16 +773,9 @@ class Plugin extends AppPlugin {
             ringProgress.style.strokeDashoffset = offset;
         }
 
-        // Update full timer
-        const bigTimerValue = this.overlay.querySelector('.flow-big-timer-value');
-        if (bigTimerValue) bigTimerValue.textContent = timeStr;
-
-        const bigProgress = this.overlay.querySelectorAll('.timer-progress, .timer-glow');
-        bigProgress.forEach(el => {
-            const circumference = 440;
-            const offset = circumference - (progress / 100 * circumference);
-            el.style.strokeDashoffset = offset;
-        });
+        // Update planning view active bar timer
+        const activeTimer = this.overlay.querySelector('.flow-active-timer');
+        if (activeTimer) activeTimer.textContent = timeStr;
     }
 
     wireOverlayEvents() {
@@ -1530,8 +813,106 @@ class Plugin extends AppPlugin {
                     const guid = actionEl.dataset.guid;
                     await this.startSession(guid);
                     break;
+                case 'hour-range':
+                    this.hourRangeMode = actionEl.dataset.mode;
+                    this.renderOverlay();
+                    break;
+                case 'add-all':
+                    await this.addAllToCalendar();
+                    break;
+                case 'estimate':
+                    this.showEstimateDropdown(actionEl, actionEl.dataset.guid);
+                    break;
             }
         });
+    }
+
+    /**
+     * Add all unscheduled tasks as floating items in the calendar
+     */
+    async addAllToCalendar() {
+        if (!window.plannerHub) return;
+
+        const unscheduled = await window.plannerHub.getUnscheduledTasks();
+        const tasks = unscheduled.filter(t => t.status !== 'done');
+
+        // For Phase 1, we just log this - actual scheduling comes in Phase 2
+        console.log(`[Flow] Add all: ${tasks.length} tasks would be floated into calendar`);
+
+        // Re-render to show updated state
+        this.renderOverlay();
+    }
+
+    /**
+     * Show estimate dropdown for a task
+     */
+    showEstimateDropdown(buttonEl, taskGuid) {
+        // Remove existing dropdown
+        const existing = document.querySelector('.flow-estimate-dropdown');
+        if (existing) existing.remove();
+
+        const rect = buttonEl.getBoundingClientRect();
+        const dropdown = document.createElement('div');
+        dropdown.className = 'flow-estimate-dropdown';
+        dropdown.style.top = `${rect.bottom + 4}px`;
+        dropdown.style.left = `${rect.left}px`;
+
+        const options = ['15m', '30m', '1h', '2h', '4h'];
+        dropdown.innerHTML = `
+            ${options.map(opt => `
+                <div class="flow-estimate-option" data-estimate="${opt}">${opt}</div>
+            `).join('')}
+            <div class="flow-estimate-custom">
+                <input type="text" placeholder="e.g. 90" title="Enter minutes">
+            </div>
+        `;
+
+        document.body.appendChild(dropdown);
+
+        // Handle option clicks
+        dropdown.addEventListener('click', async (e) => {
+            const optionEl = e.target.closest('.flow-estimate-option');
+            if (optionEl) {
+                const estimate = optionEl.dataset.estimate;
+                await this.setTaskEstimate(taskGuid, estimate);
+                dropdown.remove();
+            }
+        });
+
+        // Handle custom input
+        const input = dropdown.querySelector('input');
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                const minutes = parseInt(input.value, 10);
+                if (minutes > 0) {
+                    const estimate = minutes >= 60 ? `${Math.floor(minutes / 60)}h${minutes % 60 > 0 ? minutes % 60 + 'm' : ''}` : `${minutes}m`;
+                    await this.setTaskEstimate(taskGuid, estimate);
+                    dropdown.remove();
+                }
+            } else if (e.key === 'Escape') {
+                dropdown.remove();
+            }
+        });
+
+        // Close on outside click
+        const closeHandler = (e) => {
+            if (!dropdown.contains(e.target) && e.target !== buttonEl) {
+                dropdown.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler), 0);
+
+        input.focus();
+    }
+
+    /**
+     * Set estimate for a task (Phase 1: just update UI, Phase 2: persist)
+     */
+    async setTaskEstimate(taskGuid, estimate) {
+        console.log(`[Flow] Set estimate for ${taskGuid}: ${estimate}`);
+        // Phase 1: Just re-render, actual persistence comes in Phase 2
+        this.renderOverlay();
     }
 
     // =========================================================================
