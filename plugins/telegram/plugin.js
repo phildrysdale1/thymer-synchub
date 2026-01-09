@@ -1,4 +1,4 @@
-const VERSION = 'v1.0.3';
+const VERSION = 'v1.2.0';
 /**
  * Telegram Sync - App Plugin
  *

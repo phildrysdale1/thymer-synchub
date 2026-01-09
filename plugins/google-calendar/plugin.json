@@ -2,7 +2,7 @@
   "name": "Google Calendar Sync",
   "id": "google-calendar-sync",
   "description": "Sync events from Google Calendar to your Events collection",
-  "version": "1.0.3",
+  "version": "1.2.0",
   "author": "Thymer",
   "icon": "ti-calendar",
   "type": "app",

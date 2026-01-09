@@ -1,4 +1,4 @@
-const VERSION = 'v1.4.0';
+const VERSION = 'v1.2.0';
 /**
  * Flow - Your Focus Companion
  *
