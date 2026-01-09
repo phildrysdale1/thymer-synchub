@@ -1,4 +1,4 @@
-const VERSION = 'v1.3.9';
+const VERSION = 'v1.4.0';
 /**
  * Flow - Your Focus Companion
  *
@@ -155,6 +155,112 @@ class Plugin extends AppPlugin {
     }
 
     // =========================================================================
+    // Event Logging (PlannerHub Slot API)
+    // =========================================================================
+
+    /**
+     * Format date as YYYYMMDD for Thymer datetime segments
+     */
+    formatDateYYYYMMDD(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
+    }
+
+    /**
+     * Format time as HHMMSS for Thymer datetime segments
+     */
+    formatTimeHHMMSS(date) {
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${hours}${minutes}${seconds}`;
+    }
+
+    /**
+     * Create a Thymer datetime segment for a moment in time
+     */
+    createTimestamp(date = new Date()) {
+        return {
+            type: 'datetime',
+            text: {
+                d: this.formatDateYYYYMMDD(date),
+                t: { t: this.formatTimeHHMMSS(date), tz: 50 }
+            }
+        };
+    }
+
+    /**
+     * Create a Thymer datetime segment for a time range (same day)
+     */
+    createTimeRange(startDate, endDate) {
+        return {
+            type: 'datetime',
+            text: {
+                d: this.formatDateYYYYMMDD(startDate),
+                t: { t: this.formatTimeHHMMSS(startDate), tz: 50 },
+                r: { t: { t: this.formatTimeHHMMSS(endDate), tz: 50 } }
+            }
+        };
+    }
+
+    /**
+     * Calculate end time from start time and estimate in minutes
+     */
+    getSlotEndTime(startTime, taskGuid) {
+        const estimateMinutes = this.getTaskEstimate(taskGuid);
+        return new Date(startTime.getTime() + estimateMinutes * 60 * 1000);
+    }
+
+    /**
+     * Log an event to the Flow slot in PlannerHub
+     * Format: [ts] action [ts?] [about]
+     *
+     * @param {string} action - pinned|unpinned|updated|started|paused|completed
+     * @param {string} taskGuid - The journal task GUID
+     * @param {Date} [slotStart] - For pinned/updated: slot start time
+     * @param {Date} [slotEnd] - For pinned/updated: slot end time
+     */
+    async logEvent(action, taskGuid, slotStart = null, slotEnd = null) {
+        // TODO: Event logging disabled until PlannerHub Slot API is stable
+        // Re-enable by uncommenting the code below
+        return;
+
+        /*
+        if (!window.plannerHub?.appendToSlot) {
+            console.warn('[Flow] PlannerHub slot API not available, skipping log');
+            return;
+        }
+
+        const now = new Date();
+        const segments = [];
+
+        // [ts] - when the event happened
+        segments.push(this.createTimestamp(now));
+
+        // action
+        segments.push({ type: 'text', text: ` ${action} ` });
+
+        // [ts?] - optional slot range for pinned/updated
+        if (slotStart && slotEnd) {
+            segments.push(this.createTimeRange(slotStart, slotEnd));
+            segments.push({ type: 'text', text: ' ' });
+        }
+
+        // [about] - ref to the task
+        segments.push({ type: 'ref', text: { guid: taskGuid } });
+
+        try {
+            await window.plannerHub.appendToSlot('Flow', now, segments);
+            console.log(`[Flow] Logged: ${action} ${taskGuid}`);
+        } catch (err) {
+            console.error('[Flow] Failed to log event:', err);
+        }
+        */
+    }
+
+    // =========================================================================
     // Status Bar
     // =========================================================================
 
@@ -260,6 +366,12 @@ class Plugin extends AppPlugin {
         console.log(`[Flow] Session started: ${task.text || task.linkedIssueTitle || 'Task'}`);
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
+
+        // Log event
+        if (actualGuid) {
+            this.logEvent('started', actualGuid);
+        }
+
         return true;
     }
 
@@ -270,6 +382,12 @@ class Plugin extends AppPlugin {
         console.log('[Flow] Session paused');
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
+
+        // Log event
+        if (this.session.taskGuid) {
+            this.logEvent('paused', this.session.taskGuid);
+        }
+
         return true;
     }
 
@@ -282,19 +400,32 @@ class Plugin extends AppPlugin {
         console.log('[Flow] Session resumed');
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
+
+        // Log event (resume = started again)
+        if (this.session.taskGuid) {
+            this.logEvent('started', this.session.taskGuid);
+        }
+
         return true;
     }
 
     async endSession() {
         if (!this.session) return false;
-        if (this.session.taskGuid && window.plannerHub) {
-            await window.plannerHub.markDone(this.session.taskGuid);
+        const taskGuid = this.session.taskGuid;
+        if (taskGuid && window.plannerHub) {
+            await window.plannerHub.markDone(taskGuid);
         }
         const elapsed = this.getElapsedTime();
         console.log(`[Flow] Session ended: ${this.formatTime(elapsed)}`);
         this.session = null;
         this.updateStatusBar();
         if (this.overlay) this.renderOverlay();
+
+        // Log event
+        if (taskGuid) {
+            this.logEvent('completed', taskGuid);
+        }
+
         return true;
     }
 
@@ -1222,6 +1353,13 @@ class Plugin extends AppPlugin {
         if (newEstimate && newEstimate !== this.interaction.startEstimate) {
             this.taskEstimates.set(taskGuid, newEstimate);
             console.log(`[Flow] Resize complete: ${taskGuid}, ${this.interaction.startEstimate}m → ${newEstimate}m`);
+
+            // Log updated event if task is pinned
+            const pinnedTime = this.pinnedSlots.get(taskGuid);
+            if (pinnedTime) {
+                const endTime = new Date(pinnedTime.getTime() + newEstimate * 60 * 1000);
+                this.logEvent('updated', taskGuid, pinnedTime, endTime);
+            }
         }
 
         // Prevent click from firing after resize
@@ -1313,15 +1451,25 @@ class Plugin extends AppPlugin {
     }
 
     pinTaskToSlot(taskGuid, time) {
-        console.log(`[Flow] Pinning task ${taskGuid} to ${time.toLocaleTimeString()}`);
+        const wasPinned = this.pinnedSlots.has(taskGuid);
+        const action = wasPinned ? 'updated' : 'pinned';
+        console.log(`[Flow] ${action}: ${taskGuid} to ${time.toLocaleTimeString()}`);
         this.pinnedSlots.set(taskGuid, time);
         this.refreshTaskViews();
+
+        // Log event
+        const endTime = this.getSlotEndTime(time, taskGuid);
+        this.logEvent(action, taskGuid, time, endTime);
     }
 
     unpinTask(taskGuid) {
+        if (!this.pinnedSlots.has(taskGuid)) return;
         console.log(`[Flow] Unpinning task ${taskGuid}`);
         this.pinnedSlots.delete(taskGuid);
         this.refreshTaskViews();
+
+        // Log event
+        this.logEvent('unpinned', taskGuid);
     }
 
     getTaskEstimate(guid) {
