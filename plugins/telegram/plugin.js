@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.1';
+const VERSION = 'v1.3.1';
 /**
  * Telegram Sync - App Plugin
  *
@@ -11,7 +11,10 @@ const VERSION = 'v1.2.1';
  * 3. In Thymer Sync Hub, find Telegram record
  * 4. Paste token into config field as: {"bot_token": "YOUR_TOKEN"}
  *
- * Edit to render standard bold timestamps as Thymer datetime timestamps. 
+ * Edited by PhilDrysdale so:
+ * Tmestamps are DateTime rather than just bold text 
+ * Multi-line entries are not just indented but also are bulleted lists.
+ * Timezone is set to UTC.
  */
 
 class Plugin extends AppPlugin {
@@ -67,13 +70,19 @@ class Plugin extends AppPlugin {
      * @returns {Object} - Thymer datetime segment
      */
     createTimeSegment(date) {
+        // Calculate timezone offset in quarter-hours from UTC
+        // JavaScript's getTimezoneOffset() returns minutes west of UTC (opposite sign)
+        // Thymer expects quarter-hours east of UTC
+        const offsetMinutes = -date.getTimezoneOffset(); // Flip sign: positive = east
+        const offsetQuarterHours = offsetMinutes / 15; // Convert to quarter-hours
+        
         return {
             type: 'datetime',
             text: {
                 d: "",  // Empty string = time only (no date)
                 t: {
                     t: this.formatTimeHHMMSS(date),
-                    tz: 50  // Timezone offset (using standard value)
+                    tz: offsetQuarterHours  // Browser's timezone in quarter-hours
                 }
             }
         };
@@ -684,10 +693,10 @@ class Plugin extends AppPlugin {
             { type: 'text', text: ' ' + lines[0] }
         ]);
 
-        // Add remaining lines as children
+        // Add remaining lines as bulleted children (ulist = unordered list)
         let childLast = null;
         for (let i = 1; i < lines.length; i++) {
-            const childItem = await record.createLineItem(parentItem, childLast, 'text');
+            const childItem = await record.createLineItem(parentItem, childLast, 'ulist');
             if (childItem) {
                 childItem.setSegments([{ type: 'text', text: lines[i] }]);
                 childLast = childItem;
@@ -734,7 +743,8 @@ class Plugin extends AppPlugin {
                         { type: 'text', text: ' ' + firstLine }
                     ]);
                     
-                    // Insert remaining content as children using markdown
+                    // Insert remaining content as bulleted children using markdown
+                    // Note: insertMarkdown creates child items which render as bullets
                     if (restContent) {
                         await window.syncHub.insertMarkdown(restContent, journal, parentItem);
                     }
