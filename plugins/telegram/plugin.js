@@ -1,4 +1,4 @@
-const VERSION = 'v1.2.0';
+const VERSION = 'v1.2.1';
 /**
  * Telegram Sync - App Plugin
  *
@@ -10,6 +10,8 @@ const VERSION = 'v1.2.0';
  * 2. Copy the bot token
  * 3. In Thymer Sync Hub, find Telegram record
  * 4. Paste token into config field as: {"bot_token": "YOUR_TOKEN"}
+ *
+ * Edit to render standard bold timestamps as Thymer datetime timestamps. 
  */
 
 class Plugin extends AppPlugin {
@@ -43,6 +45,38 @@ class Plugin extends AppPlugin {
             version: VERSION,
             sync: async (ctx) => this.sync(ctx),
         });
+    }
+
+    // =========================================================================
+    // Time Formatting (for Thymer datetime segments)
+    // =========================================================================
+
+    /**
+     * Format time as HHMMSS for Thymer datetime segments
+     */
+    formatTimeHHMMSS(date) {
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${hours}${minutes}${seconds}`;
+    }
+
+    /**
+     * Create a Thymer datetime segment for a time-only value
+     * @param {Date} date - The date/time to format
+     * @returns {Object} - Thymer datetime segment
+     */
+    createTimeSegment(date) {
+        return {
+            type: 'datetime',
+            text: {
+                d: "",  // Empty string = time only (no date)
+                t: {
+                    t: this.formatTimeHHMMSS(date),
+                    tz: 50  // Timezone offset (using standard value)
+                }
+            }
+        };
     }
 
     // =========================================================================
@@ -158,17 +192,12 @@ class Plugin extends AppPlugin {
     async routeMessage(message, data, log, debug) {
         const text = message.text || message.caption || '';
         const timestamp = new Date(message.date * 1000);
-        const timeStr = timestamp.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        });
 
         debug(`Routing: "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`);
 
         // Photo handling (future: store photo)
         if (message.photo) {
-            return this.handlePhoto(message, data, timeStr, log, debug);
+            return this.handlePhoto(message, data, timestamp, log, debug);
         }
 
         // URL detection and special handling
@@ -177,20 +206,20 @@ class Plugin extends AppPlugin {
 
             // GitHub issue/PR URL
             if (this.isGitHubIssueUrl(url)) {
-                return this.handleGitHubUrl(url, data, timeStr, log, debug);
+                return this.handleGitHubUrl(url, data, timestamp, log, debug);
             }
 
             // iCal URL
             if (this.isICalUrl(url)) {
-                return this.handleICalUrl(url, data, timeStr, log, debug);
+                return this.handleICalUrl(url, data, timestamp, log, debug);
             }
 
             // Regular web URL - fetch and capture
-            return this.handleWebUrl(url, data, timeStr, log, debug);
+            return this.handleWebUrl(url, data, timestamp, log, debug);
         }
 
         // Text-based routing (from legacy plugin patterns)
-        return this.handleText(text, data, timeStr, log, debug);
+        return this.handleText(text, data, timestamp, log, debug);
     }
 
     // =========================================================================
@@ -209,7 +238,7 @@ class Plugin extends AppPlugin {
         return /\.ics(\?|$)/i.test(url) || /webcal:\/\//i.test(url);
     }
 
-    async handleGitHubUrl(url, data, timeStr, log, debug) {
+    async handleGitHubUrl(url, data, timestamp, log, debug) {
         // Extract issue info from URL
         const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)\/(issues|pull)\/(\d+)/);
         if (!match) return null;
@@ -227,7 +256,7 @@ class Plugin extends AppPlugin {
             return null;
         }
 
-        await this.appendOneLiner(journal, timeStr, `${type === 'pull' ? 'PR' : 'Issue'}: [${title}](${url})`);
+        await this.appendOneLiner(journal, timestamp, `${type === 'pull' ? 'PR' : 'Issue'}: [${title}](${url})`);
 
         return {
             verb: 'captured',
@@ -237,7 +266,7 @@ class Plugin extends AppPlugin {
         };
     }
 
-    async handleICalUrl(url, data, timeStr, log, debug) {
+    async handleICalUrl(url, data, timestamp, log, debug) {
         debug(`iCal URL: ${url}`);
 
         // For now, just capture as a link
@@ -245,7 +274,7 @@ class Plugin extends AppPlugin {
         const journal = await this.getTodayJournalRecord(data);
         if (!journal) return null;
 
-        await this.appendOneLiner(journal, timeStr, `Calendar: ${url}`);
+        await this.appendOneLiner(journal, timestamp, `Calendar: ${url}`);
 
         return {
             verb: 'captured',
@@ -255,7 +284,7 @@ class Plugin extends AppPlugin {
         };
     }
 
-    async handleWebUrl(url, data, timeStr, log, debug) {
+    async handleWebUrl(url, data, timestamp, log, debug) {
         debug(`Web URL: ${url}`);
 
         // Fetch and parse the page
@@ -276,60 +305,53 @@ class Plugin extends AppPlugin {
         if (!captures) {
             // Fallback: add to journal
             const journal = await this.getTodayJournalRecord(data);
-            if (journal) {
-                await this.appendOneLiner(journal, timeStr, `[${pageInfo.title}](${url})`);
-            }
-            return { verb: 'captured', title: `"${pageInfo.title.slice(0, 40)}" to`, guid: journal?.guid, major: false };
+            if (!journal) return null;
+            await this.appendOneLiner(journal, timestamp, `Link: [${pageInfo.title}](${url})`);
+            return {
+                verb: 'captured',
+                title: `"${pageInfo.title}" to`,
+                guid: journal.guid,
+                major: false
+            };
         }
 
-        // Check if we already have this URL captured (deduplication)
-        const externalId = `telegram_url_${url}`;
-        const existingRecords = await captures.getAllRecords();
-        const existing = existingRecords.find(r => r.text('external_id') === externalId);
-        if (existing) {
-            debug(`Already captured: ${url}`);
-            return { verb: 'skipped', title: null, guid: existing.guid, major: false };
-        }
-
-        // Create a capture record with the page title
-        const recordGuid = captures.createRecord(pageInfo.title);
+        // Create record in Captures
+        const recordGuid = captures.createNewRecord(pageInfo.title);
         if (!recordGuid) {
-            log('Failed to create capture record');
+            log('Failed to create record');
             return null;
         }
+        const record = data.getRecord(recordGuid);
+        if (!record) return null;
 
-        await new Promise(resolve => setTimeout(resolve, 50));
-        const records = await captures.getAllRecords();
-        const record = records.find(r => r.guid === recordGuid);
+        // Set URL if field exists
+        if (record.prop('url')) {
+            record.prop('url')?.set(url);
+        }
 
-        if (record) {
-            // Set all the metadata fields
-            record.prop('external_id')?.set(externalId);
-            record.prop('source_url')?.set(url);
-            record.prop('source')?.setChoice('Web');
-            if (pageInfo.author) {
-                record.prop('source_author')?.set(pageInfo.author);
-            }
+        // Set author if field exists and we have it
+        if (record.prop('author') && pageInfo.author) {
+            record.prop('author')?.set(pageInfo.author);
+        }
 
-            // Set captured_at
-            if (typeof DateTime !== 'undefined') {
-                const dt = new DateTime(new Date());
-                record.prop('captured_at')?.set(dt.value());
-            }
+        // Set captured_at to now using DateTime
+        if (record.prop('captured_at') && typeof DateTime !== 'undefined') {
+            const dt = new DateTime(new Date());
+            record.prop('captured_at')?.set(dt.value());
+        }
 
-            // Add description/content to the record body
-            if (pageInfo.description || pageInfo.content) {
-                const bodyContent = pageInfo.description || pageInfo.content;
-                if (window.syncHub?.insertMarkdown) {
-                    await window.syncHub.insertMarkdown(bodyContent, record, null);
-                }
+        // Add description/content to the record body
+        if (pageInfo.description || pageInfo.content) {
+            const bodyContent = pageInfo.description || pageInfo.content;
+            if (window.syncHub?.insertMarkdown) {
+                await window.syncHub.insertMarkdown(bodyContent, record, null);
             }
         }
 
         // Also add reference in journal
         const journal = await this.getTodayJournalRecord(data);
         if (journal) {
-            await this.addRefToJournal(journal, timeStr, 'captured', recordGuid);
+            await this.addRefToJournal(journal, timestamp, 'captured', recordGuid);
         }
 
         return {
@@ -476,7 +498,7 @@ class Plugin extends AppPlugin {
             .replace(/&nbsp;/g, ' ');
     }
 
-    async handlePhoto(message, data, timeStr, log, debug) {
+    async handlePhoto(message, data, timestamp, log, debug) {
         debug('Photo message');
 
         // For now, add a note about the photo to journal
@@ -485,7 +507,7 @@ class Plugin extends AppPlugin {
         const journal = await this.getTodayJournalRecord(data);
 
         if (journal) {
-            await this.appendOneLiner(journal, timeStr, `[Photo] ${caption}`);
+            await this.appendOneLiner(journal, timestamp, `[Photo] ${caption}`);
         }
 
         return {
@@ -497,10 +519,10 @@ class Plugin extends AppPlugin {
     }
 
     // =========================================================================
-    // Text Routing (from legacy plugin patterns)
+    // Text Routing
     // =========================================================================
 
-    async handleText(text, data, timeStr, log, debug) {
+    async handleText(text, data, timestamp, log, debug) {
         if (!text.trim()) return null;
 
         const content = text.trim();
@@ -519,7 +541,7 @@ class Plugin extends AppPlugin {
         if (isOneLiner) {
             // One-liner: simple append with timestamp
             debug('Routing: one-liner → Journal');
-            await this.appendOneLiner(journal, timeStr, content);
+            await this.appendOneLiner(journal, timestamp, content);
             return {
                 verb: 'noted',
                 title: `"${content.slice(0, 40)}" to`,
@@ -530,7 +552,7 @@ class Plugin extends AppPlugin {
         } else if (isShort) {
             // Short note (2-5 lines): first line as parent, rest as children
             debug('Routing: short note → Journal');
-            await this.appendShortNote(journal, timeStr, lines, data);
+            await this.appendShortNote(journal, timestamp, lines, data);
             return {
                 verb: 'noted',
                 title: `"${lines[0].slice(0, 40)}" to`,
@@ -543,7 +565,7 @@ class Plugin extends AppPlugin {
             debug('Routing: markdown doc → Captures');
             const result = await this.createCapture(content, data, log);
             if (result) {
-                await this.addRefToJournal(journal, timeStr, 'added', result.guid);
+                await this.addRefToJournal(journal, timestamp, 'added', result.guid);
                 return {
                     verb: 'added',
                     title: result.title,
@@ -552,7 +574,7 @@ class Plugin extends AppPlugin {
                 };
             } else {
                 // Fallback: insert in journal
-                await this.insertMarkdownToJournal(content, journal, timeStr, data);
+                await this.insertMarkdownToJournal(content, journal, timestamp, data);
                 return {
                     verb: 'noted',
                     title: `"${lines[0].slice(0, 40)}" to`,
@@ -566,8 +588,9 @@ class Plugin extends AppPlugin {
             debug('Routing: long text → Journal');
             const firstLine = lines[0];
             const restContent = content.split('\n').slice(1).join('\n');
-            const timestampedContent = `**${timeStr}** ${firstLine}\n${restContent}`;
-            await this.insertMarkdownToJournal(timestampedContent, journal, timeStr, data);
+            const timeSegment = this.createTimeSegment(timestamp);
+            const timestampedContent = `${firstLine}\n${restContent}`;
+            await this.insertMarkdownToJournal(timestampedContent, journal, timestamp, data, true);
             return {
                 verb: 'noted',
                 title: `"${firstLine.slice(0, 40)}" to`,
@@ -608,20 +631,23 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async appendOneLiner(record, timeStr, text) {
+    async appendOneLiner(record, timestamp, text) {
         const existingItems = await record.getLineItems();
         const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
         const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
 
         const newItem = await record.createLineItem(null, lastItem, 'text');
         if (newItem) {
-            // Parse inline markdown (links, bold, etc.)
-            const segments = this.parseInlineMarkdown(timeStr, text);
+            // Parse inline markdown (links, bold, etc.) and prepend time segment
+            const segments = this.parseInlineMarkdown(timestamp, text);
             newItem.setSegments(segments);
         }
     }
 
-    parseInlineMarkdown(timeStr, text) {
+    parseInlineMarkdown(timestamp, text) {
+        // Create the time segment first
+        const timeSegment = this.createTimeSegment(timestamp);
+        
         // Check for markdown link: [text](url)
         const linkMatch = text.match(/\[([^\]]+)\]\(([^)]+)\)/);
         if (linkMatch) {
@@ -630,7 +656,7 @@ class Plugin extends AppPlugin {
             const url = linkMatch[2];
             const after = text.slice(linkMatch.index + linkMatch[0].length);
 
-            const segments = [{ type: 'bold', text: timeStr }, { type: 'text', text: ' ' }];
+            const segments = [timeSegment, { type: 'text', text: ' ' }];
             if (before) segments.push({ type: 'text', text: before });
             segments.push({ type: 'link', text: linkText, url: url });
             if (after) segments.push({ type: 'text', text: after });
@@ -638,22 +664,23 @@ class Plugin extends AppPlugin {
         }
 
         return [
-            { type: 'bold', text: timeStr },
+            timeSegment,
             { type: 'text', text: ' ' + text }
         ];
     }
 
-    async appendShortNote(record, timeStr, lines, data) {
+    async appendShortNote(record, timestamp, lines, data) {
         const existingItems = await record.getLineItems();
         const topLevelItems = existingItems.filter(item => item.parent_guid === record.guid);
         const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
 
-        // Create parent item with first line
+        // Create parent item with first line and time segment
         const parentItem = await record.createLineItem(null, lastItem, 'text');
         if (!parentItem) return;
 
+        const timeSegment = this.createTimeSegment(timestamp);
         parentItem.setSegments([
-            { type: 'bold', text: timeStr },
+            timeSegment,
             { type: 'text', text: ' ' + lines[0] }
         ]);
 
@@ -668,28 +695,56 @@ class Plugin extends AppPlugin {
         }
     }
 
-    async addRefToJournal(journalRecord, timeStr, action, guid) {
+    async addRefToJournal(journalRecord, timestamp, action, guid) {
         const existingItems = await journalRecord.getLineItems();
         const topLevelItems = existingItems.filter(item => item.parent_guid === journalRecord.guid);
         const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
 
         const newItem = await journalRecord.createLineItem(null, lastItem, 'text');
         if (newItem) {
+            const timeSegment = this.createTimeSegment(timestamp);
             newItem.setSegments([
-                { type: 'bold', text: timeStr },
+                timeSegment,
                 { type: 'text', text: ` ${action} ` },
                 { type: 'ref', text: { guid: guid } }
             ]);
         }
     }
 
-    async insertMarkdownToJournal(content, journal, timeStr, data) {
+    async insertMarkdownToJournal(content, journal, timestamp, data, prependTime = false) {
         // Use Sync Hub's markdown utilities if available
         if (window.syncHub?.insertMarkdown) {
-            await window.syncHub.insertMarkdown(content, journal, null);
+            // If we need to prepend the time segment, we'll need to do it manually
+            if (prependTime) {
+                const timeSegment = this.createTimeSegment(timestamp);
+                // Insert first line with time, then rest as markdown
+                const lines = content.split('\n');
+                const firstLine = lines[0];
+                const restContent = lines.slice(1).join('\n');
+                
+                // Create parent with time + first line
+                const existingItems = await journal.getLineItems();
+                const topLevelItems = existingItems.filter(item => item.parent_guid === journal.guid);
+                const lastItem = topLevelItems.length > 0 ? topLevelItems[topLevelItems.length - 1] : null;
+                
+                const parentItem = await journal.createLineItem(null, lastItem, 'text');
+                if (parentItem) {
+                    parentItem.setSegments([
+                        timeSegment,
+                        { type: 'text', text: ' ' + firstLine }
+                    ]);
+                    
+                    // Insert remaining content as children using markdown
+                    if (restContent) {
+                        await window.syncHub.insertMarkdown(restContent, journal, parentItem);
+                    }
+                }
+            } else {
+                await window.syncHub.insertMarkdown(content, journal, null);
+            }
         } else {
             // Fallback: simple text insert
-            await this.appendOneLiner(journal, timeStr, content.split('\n')[0]);
+            await this.appendOneLiner(journal, timestamp, content.split('\n')[0]);
         }
     }
 
@@ -711,67 +766,33 @@ class Plugin extends AppPlugin {
 
             // Extract title from first heading
             const titleMatch = content.match(/^#\s+(.+)$/m);
-            const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
-
-            // Create external_id from content hash for deduplication
-            const externalId = `telegram_md_${this.simpleHash(content)}`;
-            const existingRecords = await captures.getAllRecords();
-            const existing = existingRecords.find(r => r.text('external_id') === externalId);
-            if (existing) {
-                // Update existing capture with new content
-                const bodyContent = content.replace(/^#\s+.+\n?/, '').trim();
-                if (bodyContent && window.syncHub?.replaceContents) {
-                    await window.syncHub.replaceContents(bodyContent, existing);
-                }
-                return { guid: existing.guid, title, updated: true };
-            }
+            const title = titleMatch ? titleMatch[1] : 'Untitled Note';
 
             // Create the record
-            const recordGuid = captures.createRecord(title);
-            if (!recordGuid) {
-                log('Failed to create capture record');
+            const guid = captures.createNewRecord(title);
+            if (!guid) {
+                log('Failed to create record');
                 return null;
             }
 
-            await new Promise(resolve => setTimeout(resolve, 50));
-            const records = await captures.getAllRecords();
-            const record = records.find(r => r.guid === recordGuid);
+            const record = data.getRecord(guid);
+            if (!record) return null;
 
-            if (record) {
-                // Set external_id and source
-                record.prop('external_id')?.set(externalId);
-                record.prop('source')?.setChoice('Telegram');
-
-                // Set captured_at
-                if (typeof DateTime !== 'undefined') {
-                    const dt = new DateTime(new Date());
-                    record.prop('captured_at')?.set(dt.value());
-                }
-
-                // Insert body content (remove title heading)
-                const bodyContent = content.replace(/^#\s+.+\n?/, '').trim();
-                if (bodyContent && window.syncHub?.insertMarkdown) {
-                    await window.syncHub.insertMarkdown(bodyContent, record, null);
-                }
+            // Set captured_at to now using DateTime
+            if (record.prop('captured_at') && typeof DateTime !== 'undefined') {
+                const dt = new DateTime(new Date());
+                record.prop('captured_at')?.set(dt.value());
             }
 
-            return { guid: recordGuid, title };
+            // Insert the markdown content
+            if (window.syncHub?.insertMarkdown) {
+                await window.syncHub.insertMarkdown(content, record, null);
+            }
+
+            return { title, guid };
         } catch (e) {
             log(`Error creating capture: ${e.message}`);
             return null;
         }
-    }
-
-    /**
-     * Simple hash function for deduplication
-     */
-    simpleHash(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32bit integer
-        }
-        return Math.abs(hash).toString(36);
     }
 }
