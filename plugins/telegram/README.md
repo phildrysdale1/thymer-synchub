@@ -2,6 +2,36 @@
 
 Send messages to your personal Telegram bot, and they appear in Thymer - automatically routed to the right place.
 
+---
+
+## The following features have been added in this version to the original
+### Timestamps
+- Use proper Thymer datetime segments (interactive/clickable time values)
+- Timezone calculated from browser (accurate local time)
+- Tasks don't show timestamps (cleaner appearance)
+
+### Multi-line Messages
+- First line with timestamp, subsequent lines as bulleted children
+- Lines after tasks become bulleted sub-items
+- Proper ulist type for bullets
+
+### Task Creation
+- Lines starting with [] or TASK create checkbox tasks
+@important flags tasks as important
+-  Multiple task lines each become separate tasks (no bullets)
+
+### Date Parsing
+- Automatic date detection: @tomorrow, @today, @Jan 15, 2026-01-15, 15/01
+- @ prefix removes date text, keeps date segment (clean)
+- Dates work on all lines (tasks, regular text, bullets)
+
+### Hashtags
+- #tag creates clickable, searchable hashtags
+- Works in tasks, text, and bullets
+- Supports hyphens: #project-alpha, #Q1-planning
+
+---
+
 ## Setup
 
 ### 1. Create Your Bot
